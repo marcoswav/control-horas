@@ -128,7 +128,8 @@ def sincronizar_dataframe_a_sheet(df_completo):
 
 
 # ------------------ OBTENCIÓN DE DATOS INICIALES ------------------
-hoy_str = datetime.now().strftime("%d-%m-%Y")
+hoy = datetime.now()
+hoy_str = hoy.strftime("%d-%m-%Y")
 registros_actuales = obtener_datos_hoja()
 tot_hoy, tot_sem, tot_mes, inicio_sem_dt, inicio_mes_dt = calcular_totales(
     registros_actuales
@@ -185,9 +186,14 @@ with col_izq:
   st.markdown("### 📊 Resumen Actual")
   col1, col2, col3 = st.columns(3)
 
+  dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
+  mes_hoy_nombre = meses_espanol_lower[hoy.month]
+
   with col1:
-    st.metric("Hoy", formatear_horas(tot_hoy))
-    st.caption(f"Día: {hoy_str}")
+    st.metric(
+        label=f"Hoy ({dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre})",
+        value=formatear_horas(tot_hoy),
+    )
 
   with col2:
     st.metric("Esta Semana", formatear_horas(tot_sem))
@@ -195,18 +201,21 @@ with col_izq:
     mes_sem_nombre = meses_espanol_lower[inicio_sem_dt.month]
     st.caption(
         f"Contando desde el {dia_sem_nombre} {inicio_sem_dt.day}"
-        f" {mes_sem_nombre}"
+        f" de {mes_sem_nombre}"
     )
 
   with col3:
     st.metric("Este Mes", formatear_horas(tot_mes))
+    dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
     mes_mes_nombre = meses_espanol_lower[inicio_mes_dt.month]
-    st.caption(f"Contando desde el 1 de {mes_mes_nombre}")
+    st.caption(
+        f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}"
+    )
 
   st.markdown("---")
 
   # --- REGISTRAR NUEVAS HORAS (DEBAJO DEL RESUMEN) ---
-  st.subheader("Registrar Horas")
+  st.markdown("### ✍️ Registrar horas trabajadas hoy")
   input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
 
   col_h, col_m = st.columns(2)
