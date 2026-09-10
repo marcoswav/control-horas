@@ -242,6 +242,45 @@ def calcular_totales(diccionario_registros):
   horas_teoricas_esperadas = dias_transcurridos * (23 / 7)
   deuda = horas_teoricas_esperadas - total_historico
 
+  # Cálculo del desglose por mes de deuda
+  # Julio (desde el 16 hasta el 31)
+  dias_julio = 0
+  horas_julio_trabajadas = 0.0
+  curr = datetime(2026, 7, 16)
+  fin_julio = datetime(2026, 7, 31)
+  while curr <= fin_julio and curr <= hoy_sin_hora:
+    dias_julio += 1
+    horas_julio_trabajadas += diccionario_registros.get(
+        curr.strftime("%d-%m-%Y"), 0.0
+    )
+    curr += timedelta(days=1)
+  deuda_julio = (dias_julio * (23 / 7)) - horas_julio_trabajadas
+
+  # Agosto (todo el mes)
+  dias_agosto = 0
+  horas_agosto_trabajadas = 0.0
+  curr = datetime(2026, 8, 1)
+  fin_agosto = datetime(2026, 8, 31)
+  while curr <= fin_agosto and curr <= hoy_sin_hora:
+    dias_agosto += 1
+    horas_agosto_trabajadas += diccionario_registros.get(
+        curr.strftime("%d-%m-%Y"), 0.0
+    )
+    curr += timedelta(days=1)
+  deuda_agosto = (dias_agosto * (23 / 7)) - horas_agosto_trabajadas
+
+  # Septiembre (desde el 1 hasta hoy)
+  dias_septiembre = 0
+  horas_septiembre_trabajadas = 0.0
+  curr = datetime(2026, 9, 1)
+  while curr <= hoy_sin_hora:
+    dias_septiembre += 1
+    horas_septiembre_trabajadas += diccionario_registros.get(
+        curr.strftime("%d-%m-%Y"), 0.0
+    )
+    curr += timedelta(days=1)
+  deuda_septiembre = (dias_septiembre * (23 / 7)) - horas_septiembre_trabajadas
+
   return (
       round(total_hoy, 2),
       round(total_semana, 2),
@@ -249,6 +288,9 @@ def calcular_totales(diccionario_registros):
       round(deuda, 2),
       inicio_semana,
       inicio_mes,
+      round(deuda_julio, 2),
+      round(deuda_agosto, 2),
+      round(deuda_septiembre, 2),
   )
 
 
@@ -277,9 +319,17 @@ if "registros" not in st.session_state:
   st.session_state["registros"] = obtener_datos_hoja()
 
 registros_actuales = st.session_state["registros"]
-tot_hoy, tot_sem, tot_mes, deuda_horas, inicio_sem_dt, inicio_mes_dt = (
-    calcular_totales(registros_actuales)
-)
+(
+    tot_hoy,
+    tot_sem,
+    tot_mes,
+    deuda_horas,
+    inicio_sem_dt,
+    inicio_mes_dt,
+    deuda_julio,
+    deuda_agosto,
+    deuda_septiembre,
+) = calcular_totales(registros_actuales)
 
 # ------------------ DISEÑO GENERAL DE LA INTERFAZ ------------------
 col_izq, col_der = st.columns([1.1, 0.9])
@@ -369,7 +419,7 @@ with col_izq:
 
   col_h, col_m = st.columns(2)
   with col_h:
-    input_horas = st.number_input("Horas enteras:", min_value=0, value=8, step=1)
+    input_horas = st.number_input("Horas enteras:", min_value=0, value=4, step=1)
   with col_m:
     input_minutos = st.number_input(
         "Minutos extra:", min_value=0, max_value=59, value=0, step=1
@@ -408,9 +458,17 @@ with col_izq:
     else:
       worksheet.append_row([fec, horas_nuevas])
 
-    tot_hoy_nuevo, tot_sem_nuevo, tot_mes_nuevo, deuda_nueva, _, _ = (
-        calcular_totales(st.session_state["registros"])
-    )
+    (
+        tot_hoy_nuevo,
+        tot_sem_nuevo,
+        tot_mes_nuevo,
+        deuda_nueva,
+        _,
+        _,
+        _,
+        _,
+        _,
+    ) = calcular_totales(st.session_state["registros"])
 
     st.success(
         f"guardao!\n\n"
@@ -474,7 +532,7 @@ with col_der:
               key=f"editor_{i}_{mes_nombre}",
               use_container_width=True,
               hide_index=True,
-              height=260,
+              height=280,
           )
 
           if not df_editado.equals(df_mes_visual):
@@ -513,3 +571,9 @@ with col_der:
       "Horas totales pendientes de recuperar hasta la fecha actual (acumula el"
       " objetivo diario proporcional)."
   )
+
+  with st.popover("🔍 Ver desglose de deuda por meses"):
+    st.markdown("**Deuda acumulada por mes:**")
+    st.write(f"• **Julio (desde 16):** {formatear_horas(deuda_julio)}")
+    st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
+    st.write(f"• **Septiembre:** {formatear_horas(deuda_septiembre)}")
