@@ -7,7 +7,7 @@ import streamlit as st
 credenciales_dict = dict(st.secrets["gcp_service_account"])
 gc = gspread.service_account_from_dict(credenciales_dict)
 
-# Conexión buscando el archivo por su nombre exacto en Drive
+# Conexión buscando el archivo en minúsculas
 sh = gc.open("stock control horas")
 worksheet = sh.get_worksheet(0)
 
@@ -95,8 +95,10 @@ def sincronizar_dataframe_a_sheet(df_completo):
 
     worksheet.clear()
     worksheet.update(lote)
+    return True
   except Exception as e:
     st.error(f"Error al sincronizar con Google Drive: {e}")
+    return False
 
 
 # ------------------ INTERFAZ WEB (STREAMLIT) ------------------
@@ -233,11 +235,16 @@ if registros_actuales:
           ].values
           df_para_guardar = df_global[["Fecha", "Horas"]]
 
-          sincronizar_dataframe_a_sheet(df_para_guardar)
-          st.success(
-              "🔄 ¡Cambios guardados y sincronizados con Google Drive en"
-              " directo!"
-          )
-          st.rerun()
+          if sincronizar_dataframe_a_sheet(df_para_guardar):
+            registros_actuales = obtener_datos_hoja()
+            tot_hoy_edit, tot_sem_edit, tot_mes_edit = calcular_totales(
+                registros_actuales
+            )
+            st.success(
+                "🔄 ¡Cambios sincronizados con éxito en Google Drive!\n\n"
+                f"- **Total Hoy:** {tot_hoy_edit} h\n"
+                f"- **Total Esta Semana:** {tot_sem_edit} h\n"
+                f"- **Total Este Mes:** {tot_mes_edit} h"
+            )
 else:
   st.info("Aún no hay registros en la base de datos.")
