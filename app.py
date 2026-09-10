@@ -68,16 +68,29 @@ if st.button("Guardar en Google Drive", type="primary"):
   horas_decimales = round(input_horas + (input_minutos / 60), 2)
   fec = input_fecha.strip()
 
+  # Obtenemos todas las fechas actuales de la columna A
   try:
-    # Intentamos buscar la celda directamente con worksheet.find()
-    cell = worksheet.find(fec)
-    worksheet.update_cell(cell.row, 2, horas_decimales)
-    st.success(f"¡Actualizado! El día {fec} ahora tiene {horas_decimales} horas.")
+    # Columna 1 es 'Fecha'
+    lista_fechas = worksheet.col_values(1)
   except Exception:
-    # Si la celda no existe o da cualquier error de búsqueda, añadimos una fila nueva
-    worksheet.append_row([fec, horas_decimales])
-    st.success(f"¡Guardado! El día {fec} se ha registrado con {horas_decimales} horas.")
+    lista_fechas = []
 
-  registros_actuales = obtener_datos_hoja()
-  # Forzamos la actualización de la pantalla de Streamlit
+  # Comprobamos si la fecha ya está en la lista (ignorando la cabecera en la posición 0)
+  if fec in lista_fechas[1:]:
+    # Buscamos el número de fila exacto (sumamos 1 porque list.index empieza en 0 y la cabecera cuenta)
+    fila_idx = lista_fechas[1:].index(fec) + 2
+    # Actualizamos la columna 2 (Horas) de esa fila
+    worksheet.update_cell(fila_idx, 2, horas_decimales)
+    st.success(
+        f"¡Actualizado correctamente! El día {fec} ahora tiene {horas_decimales}"
+        " horas."
+    )
+  else:
+    # Si no existe, añadimos una fila nueva al final
+    worksheet.append_row([fec, horas_decimales])
+    st.success(
+        f"¡Guardado como nuevo registro! El día {fec} tiene {horas_decimales}"
+        " horas."
+    )
+
   st.rerun()
