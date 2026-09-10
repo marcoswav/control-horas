@@ -10,32 +10,25 @@ st.set_page_config(
     layout="wide",
 )
 
-# ------------------ ESTILOS CSS (TIPOGRAFÍA MÁS GRANDE SALVO TÍTULOS) ------------------
+# ------------------ ESTILOS CSS ------------------
 st.markdown(
     """
     <style>
-        /* Aumentar tamaño de texto general, métricas, subtítulos de métricas y párrafos */
         html, body, [class*="css"] {
             font-size: 18px !important;
         }
-        /* Valores grandes de las métricas (números/horas) */
         [data-testid="stMetricValue"] {
             font-size: 1.8rem !important;
         }
-        /* Etiquetas de las métricas */
         [data-testid="stMetricLabel"] {
             font-size: 1.1rem !important;
         }
-        /* Texto de captions y ayudas */
         .stCaption {
             font-size: 1rem !important;
         }
-        /* Textos dentro de tablas / editores de datos */
         .stDataFrame, .stTable, [data-testid="stDataEditor"] {
             font-size: 1rem !important;
         }
-
-        /* EVITAR PUNTOS SUSPENSIVOS Y PERMITIR SALTO DE LÍNEA EN TABLAS (MÓVIL) */
         [data-testid="stDataEditor"] div[data-baseweb="input"] input,
         [data-testid="stDataEditor"] [role="gridcell"] {
             white-space: normal !important;
@@ -51,11 +44,10 @@ st.markdown(
 credenciales_dict = dict(st.secrets["gcp_service_account"])
 gc = gspread.service_account_from_dict(credenciales_dict)
 
-# Conexión buscando el archivo en minúsculas
 sh = gc.open("stock control horas")
 worksheet = sh.get_worksheet(0)
 
-# ------------------ DICCIONARIOS DE APOYO EN ESPAÑOL ------------------
+# ------------------ DICCIONARIOS Y FUNCIONES ------------------
 meses_espanol = {
     1: "Enero",
     2: "Febrero",
@@ -97,7 +89,6 @@ dias_semana_lower = {
 }
 
 
-# ------------------ FUNCIONES LÓGICAS ------------------
 def limpiar_fecha(fec_str):
   fec_str = str(fec_str).strip()
   try:
@@ -113,7 +104,6 @@ def limpiar_fecha(fec_str):
 
 
 def fecha_a_formato_humano(fec_str):
-  """Convierte 'DD-MM-YYYY' a 'lunes 1 de septiembre'."""
   try:
     dt = datetime.strptime(fec_str, "%d-%m-%Y")
     dia_sem = dias_semana_lower[dt.weekday()]
@@ -124,7 +114,6 @@ def fecha_a_formato_humano(fec_str):
 
 
 def formato_humano_a_fecha(humano_str):
-  """Intenta revertir 'lunes 1 de septiembre' o similares a 'DD-MM-YYYY'."""
   humano_str = str(humano_str).strip().lower()
   try:
     datetime.strptime(humano_str, "%d-%m-%Y")
@@ -176,7 +165,6 @@ def obtener_datos_hoja():
 
 
 def formatear_horas(total_decimales):
-  """Convierte un número decimal a formato legible de horas y minutos."""
   negativo = total_decimales < 0
   total_decimales = abs(total_decimales)
 
@@ -192,7 +180,6 @@ def formatear_horas(total_decimales):
 
 
 def parsear_horas_texto(valor):
-  """Convierte de vuelta una cadena tipo '8 h y 30 min' o número a decimal."""
   if pd.isnull(valor):
     return 0.0
   if isinstance(valor, (int, float)):
@@ -264,13 +251,11 @@ def calcular_totales(diccionario_registros):
 
 
 def sincronizar_dataframe_a_sheet(df_completo):
-  """Vuelca los datos del DataFrame editado de vuelta a Google Sheets."""
   try:
     lote = [["Fecha", "Horas"]]
     for _, row in df_completo.iterrows():
       fecha_limpia = formato_humano_a_fecha(row["Fecha"])
       fecha_limpia = limpiar_fecha(fecha_limpia)
-
       horas_decimal = parsear_horas_texto(row["Horas"])
       lote.append([str(fecha_limpia), float(horas_decimal)])
 
@@ -282,10 +267,12 @@ def sincronizar_dataframe_a_sheet(df_completo):
     return False
 
 
-# ------------------ OBTENCIÓN DE DATOS INICIALES ------------------
-hoy = datetime.now()
-hoy_str = hoy.strftime("%d-%m-%Y")
-registros_actuales = obtener_datos_hoja()
+# ------------------ GESTIÓN DE ESTADO (SESSION STATE) ------------------
+# Usamos st.session_state para almacenar los registros y evitar retrasos de Google Sheets
+if "registros" not in st.session_state:
+  st.session_state["registros"] = obtener_datos_hoja()
+
+registros_actuales = st.session_state["registros"]
 tot_hoy, tot_sem, tot_mes, deuda_horas, inicio_sem_dt, inicio_mes_dt = (
     calcular_totales(registros_actuales)
 )
@@ -309,7 +296,7 @@ with col_izq:
       st.metric("Hoy", formatear_horas(tot_hoy))
       st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
-  # 2. Tarjeta Semana (con Popover para ver desglose diario)
+  # 2. Tarjeta Semana
   with col2:
     with st.container(border=True):
       st.metric("Semana", formatear_horas(tot_sem))
@@ -322,7 +309,6 @@ with col_izq:
 
       with st.popover("📅 Ver detalle diario"):
         st.markdown("**Desglose de esta semana:**")
-        # Recorremos desde el inicio de la semana hasta hoy
         curr = inicio_sem_dt
         while curr <= hoy:
           f_str = curr.strftime("%d-%m-%Y")
@@ -334,7 +320,7 @@ with col_izq:
           )
           curr += timedelta(days=1)
 
-  # 3. Tarjeta Mes (con Popover para ver desglose semanal)
+  # 3. Tarjeta Mes
   with col3:
     with st.container(border=True):
       st.metric("Mes", formatear_horas(tot_mes))
@@ -346,17 +332,14 @@ with col_izq:
 
       with st.popover("📊 Ver desglose semanal"):
         st.markdown(f"**Semanas de {meses_espanol[hoy.month]}:**")
-        # Agrupar las semanas del mes actual
         curr = inicio_mes_dt
         semana_num = 1
         while curr <= hoy:
-          # Encontrar el final de esta semana (domingo o el día de hoy si acaba antes)
           dias_hasta_domingo = (6 - curr.weekday()) % 7
           fin_semana_actual = curr + timedelta(days=dias_hasta_domingo)
           if fin_semana_actual > hoy:
             fin_semana_actual = hoy
 
-          # Sumar horas en este rango
           horas_semana_bloque = 0.0
           temp = curr
           while temp <= fin_semana_actual:
@@ -378,6 +361,7 @@ with col_izq:
 
   # --- REGISTRAR NUEVAS HORAS ---
   st.markdown("### Registrar horas workeadas")
+  hoy_str = hoy.strftime("%d-%m-%Y")
   input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
 
   col_h, col_m = st.columns(2)
@@ -392,6 +376,13 @@ with col_izq:
     horas_nuevas = round(input_horas + (input_minutos / 60), 2)
     fec = limpiar_fecha(input_fecha)
 
+    # Actualizar estado local inmediatamente
+    if fec in st.session_state["registros"]:
+      st.session_state["registros"][fec] += horas_nuevas
+    else:
+      st.session_state["registros"][fec] = horas_nuevas
+
+    # Guardar en Google Sheets de fondo
     try:
       columna_fechas_raw = worksheet.col_values(1)
     except Exception:
@@ -399,7 +390,6 @@ with col_izq:
 
     encontrado = False
     fila_encontrada = -1
-
     for idx, val in enumerate(columna_fechas_raw[1:], start=2):
       if limpiar_fecha(val) == fec:
         encontrado = True
@@ -411,15 +401,15 @@ with col_izq:
         valor_previo = float(worksheet.cell(fila_encontrada, 2).value or 0)
       except ValueError:
         valor_previo = 0.0
-
-      nuevo_total_dia = round(valor_previo + horas_nuevas, 2)
-      worksheet.update_cell(fila_encontrada, 2, nuevo_total_dia)
+      worksheet.update_cell(
+          fila_encontrada, 2, round(valor_previo + horas_nuevas, 2)
+      )
     else:
       worksheet.append_row([fec, horas_nuevas])
 
-    registros_actuales = obtener_datos_hoja()
+    # Recalcular totales con el estado actualizado
     tot_hoy_nuevo, tot_sem_nuevo, tot_mes_nuevo, deuda_nueva, _, _ = (
-        calcular_totales(registros_actuales)
+        calcular_totales(st.session_state["registros"])
     )
 
     st.success(
@@ -429,6 +419,7 @@ with col_izq:
         f"- **Total Este Mes:** {formatear_horas(tot_mes_nuevo)}\n"
         f"- **Deuda Actual:** {formatear_horas(deuda_nueva)}"
     )
+    st.rerun()
 
 with col_der:
   # --- TABLA DE HISTORIAL Y EDICIÓN ---
@@ -483,7 +474,7 @@ with col_der:
               key=f"editor_{i}_{mes_nombre}",
               use_container_width=True,
               hide_index=True,
-              height=260,  # ~7 filas visibles
+              height=260,
           )
 
           if not df_editado.equals(df_mes_visual):
@@ -499,23 +490,17 @@ with col_der:
 
             df_para_guardar = df_global_asc[["Fecha", "Horas"]]
 
-            if sincronizar_dataframe_a_sheet(df_para_guardar):
-              registros_actuales = obtener_datos_hoja()
-              (
-                  tot_hoy_edit,
-                  tot_sem_edit,
-                  tot_mes_edit,
-                  deuda_edit,
-                  _,
-                  _,
-              ) = calcular_totales(registros_actuales)
-              st.success(
-                  "🔄 ¡Cambios sincronizados con éxito en Google Drive!\n\n"
-                  f"- **Total Hoy:** {formatear_horas(tot_hoy_edit)}\n"
-                  f"- **Total Esta Semana:** {formatear_horas(tot_sem_edit)}\n"
-                  f"- **Total Este Mes:** {formatear_horas(tot_mes_edit)}\n"
-                  f"- **Deuda Actual:** {formatear_horas(deuda_edit)}"
+            # Actualizar estado local inmediatamente con la edición
+            nuevo_diccionario = {}
+            for _, r in df_para_guardar.iterrows():
+              nuevo_diccionario[limpiar_fecha(r["Fecha"])] = parsear_horas_texto(
+                  r["Horas"]
               )
+            st.session_state["registros"] = nuevo_diccionario
+
+            if sincronizar_dataframe_a_sheet(df_para_guardar):
+              st.success("🔄 ¡Cambios sincronizados con éxito!")
+              st.rerun()
   else:
     st.info("Aún no hay registros en la base de datos.")
 
