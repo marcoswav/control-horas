@@ -5,7 +5,7 @@ import streamlit as st
 
 # Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
-    page_title="Gestor de Horas", page_icon="🕒", layout="wide"
+    page_title="stock control horas", page_icon="🪻", layout="wide"
 )
 
 # ------------------ ESTILOS CSS (TIPOGRAFÍA MÁS GRANDE SALVO TÍTULOS) ------------------
@@ -210,21 +210,21 @@ dias_semana_lower = {
 col_izq, col_der = st.columns([1.1, 0.9])
 
 with col_izq:
-  st.title("🕒 Gestor de Horas")
+  st.title("control de horas trabajadas")
 
   # --- RESUMEN ACTUAL ---
-  st.markdown("### 📊 Resumen Actual")
+  st.markdown("### resumen")
   col1, col2, col3 = st.columns(3)
 
   dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
   mes_hoy_nombre = meses_espanol_lower[hoy.month]
 
   with col1:
-    st.metric("Hoy", formatear_horas(tot_hoy))
+    st.metric("hoy", formatear_horas(tot_hoy))
     st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
   with col2:
-    st.metric("Esta Semana", formatear_horas(tot_sem))
+    st.metric("esta semana", formatear_horas(tot_sem))
     dia_sem_nombre = dias_semana_lower[inicio_sem_dt.weekday()]
     mes_sem_nombre = meses_espanol_lower[inicio_sem_dt.month]
     st.caption(
@@ -233,7 +233,7 @@ with col_izq:
     )
 
   with col3:
-    st.metric("Este Mes", formatear_horas(tot_mes))
+    st.metric("este mes", formatear_horas(tot_mes))
     dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
     mes_mes_nombre = meses_espanol_lower[inicio_mes_dt.month]
     st.caption(
@@ -243,7 +243,7 @@ with col_izq:
   st.markdown("---")
 
   # --- REGISTRAR NUEVAS HORAS (DEBAJO DEL RESUMEN) ---
-  st.markdown("### ✍️ Registrar horas trabajadas hoy")
+  st.markdown("### registrar trabajo hoy")
   input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
 
   col_h, col_m = st.columns(2)
@@ -289,7 +289,7 @@ with col_izq:
     )
 
     st.success(
-        f"✅ ¡Guardado con éxito!\n\n"
+        f"guardao!\n\n"
         f"- **Total Hoy:** {formatear_horas(tot_hoy_nuevo)}\n"
         f"- **Total Esta Semana:** {formatear_horas(tot_sem_nuevo)}\n"
         f"- **Total Este Mes:** {formatear_horas(tot_mes_nuevo)}"
@@ -297,7 +297,7 @@ with col_izq:
 
 with col_der:
   # --- TABLA DE HISTORIAL Y EDICIÓN A LA DERECHA (MENOS ANCHA) ---
-  st.subheader("📋 Historial y Edición")
+  st.subheader("toas las horas")
 
   if registros_actuales:
     lista_datos = [
