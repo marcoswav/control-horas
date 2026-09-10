@@ -5,7 +5,7 @@ import streamlit as st
 
 # Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
-    page_title="control horas stock", page_icon="🔧", layout="wide"
+    page_title="Gestor de Horas", page_icon="🕒", layout="wide"
 )
 
 # ------------------ CONEXIÓN CON GOOGLE SHEETS ------------------
@@ -93,32 +93,22 @@ def calcular_totales(diccionario_registros):
   inicio_mes = hoy_sin_hora.replace(day=1)
   fin_mes = hoy
 
-  dias_semana = []
-  dias_mes = []
-
   for fecha_str, horas in diccionario_registros.items():
     try:
       fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
       if inicio_semana <= fecha_dt <= fin_semana:
         total_semana += horas
-        dias_semana.append(fecha_str)
       if inicio_mes <= fecha_dt <= fin_mes:
         total_mes += horas
-        dias_mes.append(fecha_str)
     except ValueError:
       pass
-
-  dias_semana = sorted(
-      dias_semana, key=lambda x: datetime.strptime(x, "%d-%m-%Y")
-  )
-  dias_mes = sorted(dias_mes, key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
 
   return (
       round(total_hoy, 2),
       round(total_semana, 2),
       round(total_mes, 2),
-      dias_semana,
-      dias_mes,
+      inicio_semana,
+      inicio_mes,
   )
 
 
@@ -140,11 +130,11 @@ def sincronizar_dataframe_a_sheet(df_completo):
 # ------------------ OBTENCIÓN DE DATOS INICIALES ------------------
 hoy_str = datetime.now().strftime("%d-%m-%Y")
 registros_actuales = obtener_datos_hoja()
-tot_hoy, tot_sem, tot_mes, dias_sem, dias_m = calcular_totales(
+tot_hoy, tot_sem, tot_mes, inicio_sem_dt, inicio_mes_dt = calcular_totales(
     registros_actuales
 )
 
-# Diccionario para nombres de meses en español
+# Diccionarios de apoyo para texto legible en español
 meses_espanol = {
     1: "Enero",
     2: "Febrero",
@@ -158,6 +148,31 @@ meses_espanol = {
     10: "Octubre",
     11: "Noviembre",
     12: "Diciembre",
+}
+
+meses_espanol_lower = {
+    1: "enero",
+    2: "febrero",
+    3: "marzo",
+    4: "abril",
+    5: "mayo",
+    6: "junio",
+    7: "julio",
+    8: "agosto",
+    9: "septiembre",
+    10: "octubre",
+    11: "noviembre",
+    12: "diciembre",
+}
+
+dias_semana_lower = {
+    0: "lunes",
+    1: "martes",
+    2: "miércoles",
+    3: "jueves",
+    4: "viernes",
+    5: "sábado",
+    6: "domingo",
 }
 
 # ------------------ DISEÑO GENERAL DE LA INTERFAZ ------------------
@@ -176,17 +191,17 @@ with col_izq:
 
   with col2:
     st.metric("Esta Semana", formatear_horas(tot_sem))
-    if dias_sem:
-      st.caption(f"Días: {', '.join(dias_sem)}")
-    else:
-      st.caption("Sin registros")
+    dia_sem_nombre = dias_semana_lower[inicio_sem_dt.weekday()]
+    mes_sem_nombre = meses_espanol_lower[inicio_sem_dt.month]
+    st.caption(
+        f"Contando desde el {dia_sem_nombre} {inicio_sem_dt.day}"
+        f" {mes_sem_nombre}"
+    )
 
   with col3:
     st.metric("Este Mes", formatear_horas(tot_mes))
-    if dias_m:
-      st.caption(f"Días: {', '.join(dias_m)}")
-    else:
-      st.caption("Sin registros")
+    mes_mes_nombre = meses_espanol_lower[inicio_mes_dt.month]
+    st.caption(f"Contando desde el 1 de {mes_mes_nombre}")
 
   st.markdown("---")
 
