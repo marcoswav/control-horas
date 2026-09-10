@@ -3,7 +3,7 @@ import gspread
 import pandas as pd
 import streamlit as st
 
-# Configuración de la página en ancho ampliado para aprovechar las columnas
+# Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
     page_title="Gestor de Horas", page_icon="🕒", layout="wide"
 )
@@ -137,44 +137,60 @@ def sincronizar_dataframe_a_sheet(df_completo):
     return False
 
 
-# ------------------ INTERFAZ WEB (STREAMLIT) ------------------
-
-st.title("🕒 Gestor de Horas de Trabajo")
+# ------------------ OBTENCIÓN DE DATOS INICIALES ------------------
 hoy_str = datetime.now().strftime("%d-%m-%Y")
-
 registros_actuales = obtener_datos_hoja()
 tot_hoy, tot_sem, tot_mes, dias_sem, dias_m = calcular_totales(
     registros_actuales
 )
 
-# --- RESUMEN SUPERIOR ---
-st.markdown("### 📊 Resumen Actual")
-col1, col2, col3 = st.columns(3)
+# Diccionario para nombres de meses en español
+meses_espanol = {
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre",
+}
 
-with col1:
-  st.metric("Hoy", formatear_horas(tot_hoy))
-  st.caption(f"Día: {hoy_str}")
-
-with col2:
-  st.metric("Esta Semana", formatear_horas(tot_sem))
-  if dias_sem:
-    st.caption(f"Días (Lunes a hoy): {', '.join(dias_sem)}")
-  else:
-    st.caption("Sin registros esta semana")
-
-with col3:
-  st.metric("Este Mes", formatear_horas(tot_mes))
-  if dias_m:
-    st.caption(f"Días (Día 1 a hoy): {', '.join(dias_m)}")
-  else:
-    st.caption("Sin registros este mes")
-
-st.markdown("---")
-
-# --- DISEÑO EN DOS COLUMNAS (IZQ: REGISTRO | DER: TABLA) ---
+# ------------------ DISEÑO GENERAL DE LA INTERFAZ ------------------
 col_izq, col_der = st.columns([1, 1.2])
 
 with col_izq:
+  st.title("🕒 Gestor de Horas")
+
+  # --- RESUMEN ACTUAL ---
+  st.markdown("### 📊 Resumen Actual")
+  col1, col2, col3 = st.columns(3)
+
+  with col1:
+    st.metric("Hoy", formatear_horas(tot_hoy))
+    st.caption(f"Día: {hoy_str}")
+
+  with col2:
+    st.metric("Esta Semana", formatear_horas(tot_sem))
+    if dias_sem:
+      st.caption(f"Días: {', '.join(dias_sem)}")
+    else:
+      st.caption("Sin registros")
+
+  with col3:
+    st.metric("Este Mes", formatear_horas(tot_mes))
+    if dias_m:
+      st.caption(f"Días: {', '.join(dias_m)}")
+    else:
+      st.caption("Sin registros")
+
+  st.markdown("---")
+
+  # --- REGISTRAR NUEVAS HORAS (DEBAJO DEL RESUMEN) ---
   st.subheader("Registrar Horas")
   input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
 
@@ -228,7 +244,8 @@ with col_izq:
     )
 
 with col_der:
-  st.subheader("📋 Historial y Edición por Meses")
+  # --- TABLA DE HISTORIAL Y EDICIÓN A LA DERECHA ---
+  st.subheader("📋 Historial y Edición")
 
   if registros_actuales:
     lista_datos = [
@@ -239,23 +256,8 @@ with col_der:
     df_global["Fecha_dt"] = pd.to_datetime(
         df_global["Fecha"], format="%d-%m-%Y", errors="coerce"
     )
-    # Orden ascendente para que los días antiguos estén arriba y hoy al final (abajo)
     df_global = df_global.sort_values(by="Fecha_dt", ascending=True)
 
-    meses_espanol = {
-        1: "Enero",
-        2: "Febrero",
-        3: "Marzo",
-        4: "Abril",
-        5: "Mayo",
-        6: "Junio",
-        7: "Julio",
-        8: "Agosto",
-        9: "Septiembre",
-        10: "Octubre",
-        11: "Noviembre",
-        12: "Diciembre",
-    }
     df_global["Mes"] = df_global["Fecha_dt"].apply(
         lambda x: (
             f"{meses_espanol[x.month]} {x.year}"
@@ -266,6 +268,14 @@ with col_der:
     df_global = df_global.drop(columns=["Fecha_dt"])
 
     meses_disponibles = [str(m) for m in df_global["Mes"].unique().tolist()]
+
+    # Poner el mes actual en primer lugar para que aparezca seleccionado por defecto
+    mes_actual_nombre = (
+        f"{meses_espanol[datetime.now().month]} {datetime.now().year}"
+    )
+    if mes_actual_nombre in meses_disponibles:
+      meses_disponibles.remove(mes_actual_nombre)
+      meses_disponibles.insert(0, mes_actual_nombre)
 
     if meses_disponibles:
       pestañas = st.tabs(meses_disponibles)
@@ -283,6 +293,7 @@ with col_der:
               key=f"editor_{i}_{mes_nombre}",
               use_container_width=True,
               hide_index=True,
+              height=400,
           )
 
           if not df_editado.equals(df_mes):
