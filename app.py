@@ -303,13 +303,13 @@ with col_izq:
   dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
   mes_hoy_nombre = meses_espanol_lower[hoy.month]
 
-  # Tarjeta para 'Hoy'
+  # 1. Tarjeta Hoy
   with col1:
     with st.container(border=True):
       st.metric("Hoy", formatear_horas(tot_hoy))
       st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
-  # Tarjeta para 'Semana'
+  # 2. Tarjeta Semana (con Popover para ver desglose diario)
   with col2:
     with st.container(border=True):
       st.metric("Semana", formatear_horas(tot_sem))
@@ -320,7 +320,21 @@ with col_izq:
           f" de {mes_sem_nombre}"
       )
 
-  # Tarjeta para 'Mes'
+      with st.popover("📅 Ver detalle diario"):
+        st.markdown("**Desglose de esta semana:**")
+        # Recorremos desde el inicio de la semana hasta hoy
+        curr = inicio_sem_dt
+        while curr <= hoy:
+          f_str = curr.strftime("%d-%m-%Y")
+          h_dia = registros_actuales.get(f_str, 0.0)
+          d_nombre = dias_semana_lower[curr.weekday()].replace(" - ", "")
+          st.write(
+              f"• **{d_nombre.capitalize()} {curr.day}:**"
+              f" {formatear_horas(h_dia)}"
+          )
+          curr += timedelta(days=1)
+
+  # 3. Tarjeta Mes (con Popover para ver desglose semanal)
   with col3:
     with st.container(border=True):
       st.metric("Mes", formatear_horas(tot_mes))
@@ -329,6 +343,36 @@ with col_izq:
       st.caption(
           f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}"
       )
+
+      with st.popover("📊 Ver desglose semanal"):
+        st.markdown(f"**Semanas de {meses_espanol[hoy.month]}:**")
+        # Agrupar las semanas del mes actual
+        curr = inicio_mes_dt
+        semana_num = 1
+        while curr <= hoy:
+          # Encontrar el final de esta semana (domingo o el día de hoy si acaba antes)
+          dias_hasta_domingo = (6 - curr.weekday()) % 7
+          fin_semana_actual = curr + timedelta(days=dias_hasta_domingo)
+          if fin_semana_actual > hoy:
+            fin_semana_actual = hoy
+
+          # Sumar horas en este rango
+          horas_semana_bloque = 0.0
+          temp = curr
+          while temp <= fin_semana_actual:
+            horas_semana_bloque += registros_actuales.get(
+                temp.strftime("%d-%m-%Y"), 0.0
+            )
+            temp += timedelta(days=1)
+
+          st.write(
+              f"• **Semana {semana_num}** ({curr.day}/{curr.month} - "
+              f"{fin_semana_actual.day}/{fin_semana_actual.month}): "
+              f"**{formatear_horas(horas_semana_bloque)}**"
+          )
+
+          curr = fin_semana_actual + timedelta(days=1)
+          semana_num += 1
 
   st.markdown("---")
 
