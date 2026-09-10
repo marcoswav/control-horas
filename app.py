@@ -8,6 +8,35 @@ st.set_page_config(
     page_title="Gestor de Horas", page_icon="🕒", layout="wide"
 )
 
+# ------------------ ESTILOS CSS (TIPOGRAFÍA MÁS GRANDE SALVO TÍTULOS) ------------------
+st.markdown(
+    """
+    <style>
+        /* Aumentar tamaño de texto general, métricas, subtítulos de métricas y párrafos */
+        html, body, [class*="css"] {
+            font-size: 18px !important;
+        }
+        /* Valores grandes de las métricas (números/horas) */
+        [data-testid="stMetricValue"] {
+            font-size: 1.8rem !important;
+        }
+        /* Etiquetas de las métricas */
+        [data-testid="stMetricLabel"] {
+            font-size: 1.1rem !important;
+        }
+        /* Texto de captions y ayudas */
+        .stCaption {
+            font-size: 1rem !important;
+        }
+        /* Textos dentro de tablas / editores de datos */
+        .stDataFrame, .stTable, [data-testid="stDataEditor"] {
+            font-size: 1rem !important;
+        }
+    </style>
+""",
+    unsafe_allow_html=True,
+)
+
 # ------------------ CONEXIÓN CON GOOGLE SHEETS ------------------
 credenciales_dict = dict(st.secrets["gcp_service_account"])
 gc = gspread.service_account_from_dict(credenciales_dict)
