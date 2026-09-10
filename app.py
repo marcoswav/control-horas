@@ -136,7 +136,6 @@ def calcular_totales(diccionario_registros):
       pass
 
   # --- CÁLCULO DE DEUDA DESDE EL 16 DE JULIO DE 2026 ---
-  # 23 horas semanales -> 23 / 7 horas por día
   inicio_deuda = datetime(2026, 7, 16)
   dias_transcurridos = (hoy_sin_hora - inicio_deuda).days + 1
   if dias_transcurridos < 0:
@@ -144,7 +143,6 @@ def calcular_totales(diccionario_registros):
 
   horas_teoricas_esperadas = dias_transcurridos * (23 / 7)
   deuda = horas_teoricas_esperadas - total_historico
-  # Si la deuda es positiva, faltan horas. Si es negativa, vas por delante.
 
   return (
       round(total_hoy, 2),
@@ -221,7 +219,6 @@ dias_semana_lower = {
 }
 
 # ------------------ DISEÑO GENERAL DE LA INTERFAZ ------------------
-# Columna izquierda más ancha y derecha más estrecha (menos ancha la tabla)
 col_izq, col_der = st.columns([1.1, 0.9])
 
 with col_izq:
@@ -255,17 +252,9 @@ with col_izq:
         f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}"
     )
 
-  # Fila adicional para la Deuda de Horas
-  st.markdown("<br>", unsafe_allow_html=True)
-  st.metric(
-      "📉 Deuda de Horas (Objetivo: 23h/sem desde 16 de julio)",
-      formatear_horas(deuda_horas),
-  )
-  st.caption("Horas totales pendientes de recuperar hasta la fecha actual.")
-
   st.markdown("---")
 
-  # --- REGISTRAR NUEVAS HORAS (DEBAJO DEL RESUMEN) ---
+  # --- REGISTRAR NUEVAS HORAS ---
   st.markdown("### ✍️ Registrar horas trabajadas hoy")
   input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
 
@@ -320,7 +309,7 @@ with col_izq:
     )
 
 with col_der:
-  # --- TABLA DE HISTORIAL Y EDICIÓN A LA DERECHA (MENOS ANCHA) ---
+  # --- TABLA DE HISTORIAL Y EDICIÓN ---
   st.subheader("📋 Historial y Edición")
 
   if registros_actuales:
@@ -341,14 +330,14 @@ with col_der:
         )
     )
 
-    # Ordenar los meses de forma descendente (más reciente primero: Septiembre, Agosto, Julio...)
+    # Ordenar los meses de forma descendente (más reciente primero)
     df_global_desc = df_global.sort_values(by="Fecha_dt", ascending=False)
     meses_disponibles = []
     for m in df_global_desc["Mes"]:
       if m not in meses_disponibles:
         meses_disponibles.append(m)
 
-    # Para los datos dentro de cada pestaña, orden ascendente (antiguo arriba, hoy abajo)
+    # Para los datos dentro de cada pestaña, orden ascendente
     df_global_asc = df_global.sort_values(by="Fecha_dt", ascending=True)
     df_global_asc = df_global_asc.drop(columns=["Fecha_dt"])
 
@@ -396,3 +385,15 @@ with col_der:
               )
   else:
     st.info("Aún no hay registros en la base de datos.")
+
+  # --- APARTADO DE DEUDA DEBAJO DE LA TABLA ---
+  st.markdown("---")
+  st.markdown("### 📉 Balance de Deuda")
+  st.metric(
+      "Deuda de Horas (Objetivo: 23h/sem desde 16 de julio)",
+      formatear_horas(deuda_horas),
+  )
+  st.caption(
+      "Horas totales pendientes de recuperar hasta la fecha actual (acumula el"
+      " objetivo diario proporcional)."
+  )
