@@ -45,6 +45,47 @@ gc = gspread.service_account_from_dict(credenciales_dict)
 sh = gc.open("stock control horas")
 worksheet = sh.get_worksheet(0)
 
+# ------------------ DICCIONARIOS DE APOYO EN ESPAÑOL ------------------
+meses_espanol = {
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre",
+}
+
+meses_espanol_lower = {
+    1: "enero",
+    2: "febrero",
+    3: "marzo",
+    4: "abril",
+    5: "mayo",
+    6: "junio",
+    7: "julio",
+    8: "agosto",
+    9: "septiembre",
+    10: "octubre",
+    11: "noviembre",
+    12: "diciembre",
+}
+
+dias_semana_lower = {
+    0: "lunes",
+    1: "martes",
+    2: "miércoles",
+    3: "jueves",
+    4: "viernes",
+    5: "sábado",
+    6: "domingo",
+}
+
 
 # ------------------ FUNCIONES LÓGICAS ------------------
 def limpiar_fecha(fec_str):
@@ -59,6 +100,45 @@ def limpiar_fecha(fec_str):
   except Exception:
     pass
   return fec_str
+
+
+def fecha_a_formato_humano(fec_str):
+  """Convierte 'DD-MM-YYYY' a 'lunes 1 de septiembre'."""
+  try:
+    dt = datetime.strptime(fec_str, "%d-%m-%Y")
+    dia_sem = dias_semana_lower[dt.weekday()]
+    mes = meses_espanol_lower[dt.month]
+    return f"{dia_sem} {dt.day} de {mes}"
+  except Exception:
+    return fec_str
+
+
+def formato_humano_a_fecha(humano_str):
+  """Intenta revertir 'lunes 1 de septiembre' o similares a 'DD-MM-YYYY'."""
+  humano_str = str(humano_str).strip().lower()
+  # Si ya viene en formato DD-MM-YYYY, devolverlo tal cual
+  try:
+    datetime.strptime(humano_str, "%d-%m-%Y")
+    return humano_str
+  except ValueError:
+    pass
+
+  # Intentar buscar año actual si no se especifica
+  hoy_anio = datetime.now().year
+  for num_mes, nombre_mes in meses_espanol_lower.items():
+    if nombre_mes in humano_str:
+      # Extraer el número del día buscando dígitos en la cadena
+      import re
+
+      numeros = re.findall(r"\d+", humano_str)
+      if numeros:
+        dia = int(numeros[0])
+        try:
+          dt = datetime(hoy_anio, num_mes, dia)
+          return dt.strftime("%d-%m-%Y")
+        except ValueError:
+          pass
+  return humano_str
 
 
 def obtener_datos_hoja():
@@ -184,9 +264,12 @@ def sincronizar_dataframe_a_sheet(df_completo):
   try:
     lote = [["Fecha", "Horas"]]
     for _, row in df_completo.iterrows():
-      # Asegurar que se guarden en formato numérico decimal limpio en la hoja
+      # Normalizar fecha de vuelta a DD-MM-YYYY antes de guardar
+      fecha_limpia = formato_humano_a_fecha(row["Fecha"])
+      fecha_limpia = limpiar_fecha(fecha_limpia)
+
       horas_decimal = parsear_horas_texto(row["Horas"])
-      lote.append([str(row["Fecha"]), float(horas_decimal)])
+      lote.append([str(fecha_limpia), float(horas_decimal)])
 
     worksheet.clear()
     worksheet.update(lote)
@@ -203,47 +286,6 @@ registros_actuales = obtener_datos_hoja()
 tot_hoy, tot_sem, tot_mes, deuda_horas, inicio_sem_dt, inicio_mes_dt = (
     calcular_totales(registros_actuales)
 )
-
-# Diccionarios de apoyo para texto legible en español
-meses_espanol = {
-    1: "Enero",
-    2: "Febrero",
-    3: "Marzo",
-    4: "Abril",
-    5: "Mayo",
-    6: "Junio",
-    7: "Julio",
-    8: "Agosto",
-    9: "Septiembre",
-    10: "Octubre",
-    11: "Noviembre",
-    12: "Diciembre",
-}
-
-meses_espanol_lower = {
-    1: "enero",
-    2: "febrero",
-    3: "marzo",
-    4: "abril",
-    5: "mayo",
-    6: "junio",
-    7: "julio",
-    8: "agosto",
-    9: "septiembre",
-    10: "octubre",
-    11: "noviembre",
-    12: "diciembre",
-}
-
-dias_semana_lower = {
-    0: "lunes",
-    1: "martes",
-    2: "miércoles",
-    3: "jueves",
-    4: "viernes",
-    5: "sábado",
-    6: "domingo",
-}
 
 # ------------------ DISEÑO GENERAL DE LA INTERFAZ ------------------
 col_izq, col_der = st.columns([1.1, 0.9])
@@ -379,8 +421,11 @@ with col_der:
               ["Fecha", "Horas"]
           ].reset_index(drop=True)
 
-          # Convertir la columna de horas decimales a formato legible de horas y minutos para la tabla
+          # Convertir formato de fecha a humano (ej. 'lunes 1 de septiembre') y horas a formato legible
           df_mes_visual = df_mes.copy()
+          df_mes_visual["Fecha"] = df_mes_visual["Fecha"].apply(
+              fecha_a_formato_humano
+          )
           df_mes_visual["Horas"] = df_mes_visual["Horas"].apply(formatear_horas)
 
           df_editado = st.data_editor(
@@ -391,12 +436,19 @@ with col_der:
               height=400,
           )
 
-          # Si el usuario edita algo, comparamos con los datos visuales originales
+          # Si el usuario edita algo, actualizamos
           if not df_editado.equals(df_mes_visual):
-            # Actualizamos el dataframe global convirtiendo los textos editados de vuelta a formato numérico
+            # Revertir cada fecha visual modificada a formato estándar para guardar
+            fechas_convertidas = df_editado["Fecha"].apply(
+                formato_humano_a_fecha
+            )
+            df_global_asc.loc[df_global_asc["Mes"] == mes_nombre, "Fecha"] = (
+                fechas_convertidas.values
+            )
             df_global_asc.loc[df_global_asc["Mes"] == mes_nombre, "Horas"] = (
                 df_editado["Horas"].apply(parsear_horas_texto).values
             )
+
             df_para_guardar = df_global_asc[["Fecha", "Horas"]]
 
             if sincronizar_dataframe_a_sheet(df_para_guardar):
