@@ -5,7 +5,7 @@ import streamlit as st
 
 # Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
-    page_title="Control horas Stock", page_icon="https://cdn-icons-png.flaticon.com/512/4600/4600333.png", layout="wide"
+    page_title="horas Stock", page_icon="https://cdn-icons-png.flaticon.com/512/194/194978.png", layout="wide"
 )
 
 # ------------------ ESTILOS CSS (TIPOGRAFÍA MÁS GRANDE SALVO TÍTULOS) ------------------
@@ -77,13 +77,13 @@ meses_espanol_lower = {
 }
 
 dias_semana_lower = {
-    0: "L",
-    1: "M",
-    2: "X",
-    3: "J",
-    4: "V",
-    5: "S",
-    6: "D",
+    0: "L - ",
+    1: "M - ",
+    2: "X - ",
+    3: "J - ",
+    4: "V - ",
+    5: "S - ",
+    6: "D - ",
 }
 
 
@@ -294,7 +294,7 @@ with col_izq:
   st.title("Control horas work")
 
   # --- RESUMEN ACTUAL ---
-  st.markdown("### Resumen actual")
+  st.markdown("### rezumen actual")
   col1, col2, col3 = st.columns(3)
 
   dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
@@ -305,7 +305,7 @@ with col_izq:
     st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
   with col2:
-    st.metric("Esta Semana", formatear_horas(tot_sem))
+    st.metric("Semana", formatear_horas(tot_sem))
     dia_sem_nombre = dias_semana_lower[inicio_sem_dt.weekday()]
     mes_sem_nombre = meses_espanol_lower[inicio_sem_dt.month]
     st.caption(
@@ -314,7 +314,7 @@ with col_izq:
     )
 
   with col3:
-    st.metric("Este Mes", formatear_horas(tot_mes))
+    st.metric("Mes", formatear_horas(tot_mes))
     dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
     mes_mes_nombre = meses_espanol_lower[inicio_mes_dt.month]
     st.caption(
