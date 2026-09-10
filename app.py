@@ -69,12 +69,15 @@ if st.button("Guardar en Google Drive", type="primary"):
   fec = input_fecha.strip()
 
   try:
+    # Intentamos buscar la celda directamente con worksheet.find()
     cell = worksheet.find(fec)
     worksheet.update_cell(cell.row, 2, horas_decimales)
-    st.success(f"actualizao. El día {fec} ahora tiene {horas_decimales} horas.")
-  except gspread.exceptions.CellNotFound:
+    st.success(f"¡Actualizado! El día {fec} ahora tiene {horas_decimales} horas.")
+  except Exception:
+    # Si la celda no existe o da cualquier error de búsqueda, añadimos una fila nueva
     worksheet.append_row([fec, horas_decimales])
-    st.success(f"guardao. El día {fec} se ha registrado con {horas_decimales} horas.")
+    st.success(f"¡Guardado! El día {fec} se ha registrado con {horas_decimales} horas.")
 
   registros_actuales = obtener_datos_hoja()
-  mostrar_horas_totales(registros_actuales)
+  # Forzamos la actualización de la pantalla de Streamlit
+  st.rerun()
