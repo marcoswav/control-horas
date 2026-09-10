@@ -14,10 +14,9 @@ worksheet = sh.get_worksheet(0)
 
 # ------------------ FUNCIONES LÓGICAS Y DE CÁLCULO ------------------
 def limpiar_fecha(fec_str):
-  """Estandariza la fecha a formato DD-MM-YYYY para evitar desajustes."""
+  """Estandariza la fecha a formato DD-MM-YYYY."""
   fec_str = str(fec_str).strip()
   try:
-    # Intenta parsear y devolver en formato limpio DD-MM-YYYY
     for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
       try:
         dt = datetime.strptime(fec_str, fmt)
@@ -56,25 +55,12 @@ def obtener_datos_hoja():
   return diccionario_registros
 
 
-def formatear_horas(total_decimales):
-  """Convierte decimales a horas y minutos exactos sin errores de desborde."""
-  if total_decimales < 0:
-    total_decimales = 0.0
-  horas_enteras = int(total_decimales)
-  minutos_restantes = int(round((total_decimales - horas_enteras) * 60))
-
-  if minutos_restantes == 60:
-    horas_enteras += 1
-    minutos_restantes = 0
-
-  return f"{horas_enteras} horas y {minutos_restantes} minutos"
-
-
 def calcular_totales(diccionario_registros):
   hoy = datetime.now()
+  hoy_str = hoy.strftime("%d-%m-%Y")
   mes_actual_str = hoy.strftime("%m-%Y")
 
-  total_historico = 0.0
+  total_hoy = diccionario_registros.get(hoy_str, 0.0)
   total_mes = 0.0
   total_semana = 0.0
 
@@ -85,7 +71,6 @@ def calcular_totales(diccionario_registros):
   fin_semana = inicio_semana + timedelta(days=6, hours=23, minutes=59)
 
   for fecha_str, horas in diccionario_registros.items():
-    total_historico += horas
     try:
       fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
       if fecha_dt.strftime("%m-%Y") == mes_actual_str:
@@ -95,7 +80,11 @@ def calcular_totales(diccionario_registros):
     except ValueError:
       pass
 
-  return total_historico, total_semana, total_mes
+  return (
+      round(total_hoy, 2),
+      round(total_semana, 2),
+      round(total_mes, 2),
+  )
 
 
 # ------------------ INTERFAZ WEB (STREAMLIT) ------------------
@@ -103,18 +92,19 @@ def calcular_totales(diccionario_registros):
 st.title("🕒 Gestor de Horas de Trabajo")
 hoy_str = datetime.now().strftime("%d-%m-%Y")
 
-# Cargamos datos frescos de la hoja
+# Cargamos datos y calculamos totales iniciales
 registros_actuales = obtener_datos_hoja()
-tot_hist, tot_sem, tot_mes = calcular_totales(registros_actuales)
+tot_hoy, tot_sem, tot_mes = calcular_totales(registros_actuales)
 
-# --- MÉTRICAS SUPERIORES ---
+# --- APARTADO 1: CAJITAS SUPERIORES (RESUMEN GENERAL) ---
+st.markdown("### 📊 Resumen Actual")
 col1, col2, col3 = st.columns(3)
 with col1:
-  st.metric("Esta Semana", formatear_horas(tot_sem))
+  st.metric("Hoy", f"{tot_hoy} h")
 with col2:
-  st.metric("Este Mes", formatear_horas(tot_mes))
+  st.metric("Esta Semana", f"{tot_sem} h")
 with col3:
-  st.metric("Histórico Total", formatear_horas(tot_hist))
+  st.metric("Este Mes", f"{tot_mes} h")
 
 st.markdown("---")
 
@@ -131,12 +121,10 @@ if st.button("Guardar en Google Drive", type="primary"):
   fec = limpiar_fecha(input_fecha)
 
   try:
-    # Leemos la columna entera de fechas de la hoja
     columna_fechas_raw = worksheet.col_values(1)
   except Exception:
     columna_fechas_raw = []
 
-  # Buscamos si la fecha ya existe en la hoja (ignorando cabecera en índice 0)
   encontrado = False
   fila_encontrada = -1
 
@@ -147,26 +135,26 @@ if st.button("Guardar en Google Drive", type="primary"):
       break
 
   if encontrado:
-    # Si existe, leemos el valor actual de la columna B en esa misma fila
     try:
       valor_previo = float(worksheet.cell(fila_encontrada, 2).value or 0)
     except ValueError:
       valor_previo = 0.0
 
     nuevo_total_dia = round(valor_previo + horas_nuevas, 2)
-    # Actualizamos la celda con la suma acumulada
     worksheet.update_cell(fila_encontrada, 2, nuevo_total_dia)
-
-    # Mensaje detallado sin refrescar la página bruscamente
-    st.success(
-        f"✅ ¡Actualizado con éxito! El día {fec} sumaba {valor_previo}"
-        f" horas, se han añadido {horas_nuevas} horas y ahora acumula un"
-        f" **total de {nuevo_total_dia} horas** ({formatear_horas(nuevo_total_dia)})."
-    )
   else:
-    # Si no existe, creamos una fila nueva al final
     worksheet.append_row([fec, horas_nuevas])
-    st.success(
-        f"🎉 ¡Guardado nuevo registro! El día {fec} se ha registrado con"
-        f" **{horas_nuevas} horas** ({formatear_horas(horas_nuevas)})."
-    )
+
+  # Recalculamos los totales instantáneamente tras guardar para mostrarlos en la cajita de éxito
+  registros_actuales = obtener_datos_hoja()
+  tot_hoy_nuevo, tot_sem_nuevo, tot_mes_nuevo = calcular_totales(
+      registros_actuales
+  )
+
+  # --- APARTADO 2: CAJITA DE ÉXITO AL PULSAR EL BOTÓN ---
+  st.success(
+      f"✅ ¡Guardado con éxito!\n\n"
+      f"- **Total Hoy:** {tot_hoy_nuevo} h\n"
+      f"- **Total Esta Semana:** {tot_sem_nuevo} h\n"
+      f"- **Total Este Mes:** {tot_mes_nuevo} h"
+  )
