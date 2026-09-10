@@ -6,11 +6,9 @@ import streamlit as st
 credenciales_dict = dict(st.secrets["gcp_service_account"])
 gc = gspread.service_account_from_dict(credenciales_dict)
 
-sh = gc.open_by_url(
-    "https://docs.google.com/spreadsheets/d/1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E/edit?gid=0#gid=0"
-)
+# En lugar de open_by_url, le decimos que busque el archivo por su nombre exacto:
+sh = gc.open("stock control horas")
 worksheet = sh.get_worksheet(0)
-
 
 # ------------------ FUNCIONES LÓGICAS Y DE CÁLCULO ------------------
 def limpiar_fecha(fec_str):
@@ -158,3 +156,18 @@ if st.button("Guardar en Google Drive", type="primary"):
       f"- **Total Esta Semana:** {tot_sem_nuevo} h\n"
       f"- **Total Este Mes:** {tot_mes_nuevo} h"
   )
+
+# --- APARTADO 3: TABLA DE HISTORIAL EN DIRECTO ---
+st.markdown("---")
+st.subheader("📋 Historial de Registros en la Nube")
+if registros_actuales:
+  # Convertimos el diccionario a una lista ordenada para mostrarla bonita
+  import pandas as pd
+
+  df = pd.DataFrame(
+      list(registros_actuales.items()), columns=["Fecha", "Horas (Decimal)"]
+  )
+  # Ordenamos por fecha si es posible
+  st.dataframe(df, use_container_width=True, hide_index=True)
+else:
+  st.info("Aún no hay registros guardados.")
