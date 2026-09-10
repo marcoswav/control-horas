@@ -361,7 +361,7 @@ with col_izq:
           f" de {mes_sem_nombre}"
       )
 
-      with st.popover("📅 Ver detalle diario"):
+      with st.popover("detalles"):
         st.markdown("**Desglose de esta semana:**")
         curr = inicio_sem_dt
         while curr <= hoy:
@@ -384,7 +384,7 @@ with col_izq:
           f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}"
       )
 
-      with st.popover("📊 Ver desglose semanal"):
+      with st.popover("detalles"):
         st.markdown(f"**Semanas de {meses_espanol[hoy.month]}:**")
         curr = inicio_mes_dt
         semana_num = 1
@@ -556,7 +556,7 @@ with col_der:
             st.session_state["registros"] = nuevo_diccionario
 
             if sincronizar_dataframe_a_sheet(df_para_guardar):
-              st.success("🔄 ¡Cambios sincronizados con éxito!")
+              st.success("se han guardao los cambios")
               st.rerun()
   else:
     st.info("Aún no hay registros en la base de datos.")
@@ -572,7 +572,7 @@ with col_der:
       " objetivo diario proporcional)."
   )
 
-  with st.popover("🔍 Ver desglose de deuda por meses"):
+  with st.popover("detalles"):
     st.markdown("**Deuda acumulada por mes:**")
     st.write(f"• **Julio (desde 16):** {formatear_horas(deuda_julio)}")
     st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
