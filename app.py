@@ -16,7 +16,7 @@ credenciales_dict = dict(st.secrets["gcp_service_account"])
 gc = gspread.service_account_from_dict(credenciales_dict)
 
 sh = gc.open_by_url(
-    "https://docs.google.com/spreadsheets/d/EL_ENLACE_DE_TU_HOJA_AQUI")  # El nombre exacto de tu hoja en Drive
+    "https://docs.google.com/spreadsheets/d/https://docs.google.com/spreadsheets/d/1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E/edit?gid=0#gid=0")  # El nombre exacto de tu hoja en Drive
 worksheet = sh.get_worksheet(0)
 
 
