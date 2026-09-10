@@ -5,7 +5,7 @@ import streamlit as st
 
 # Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
-    page_title="stock control horas", page_icon="🪻", layout="wide"
+    page_title="Gestor de Horas", page_icon="🕒", layout="wide"
 )
 
 # ------------------ ESTILOS CSS (TIPOGRAFÍA MÁS GRANDE SALVO TÍTULOS) ------------------
@@ -90,8 +90,9 @@ def obtener_datos_hoja():
 
 def formatear_horas(total_decimales):
   """Convierte un número decimal a formato legible de horas y minutos."""
-  if total_decimales < 0:
-    total_decimales = 0.0
+  negativo = total_decimales < 0
+  total_decimales = abs(total_decimales)
+
   horas_enteras = int(total_decimales)
   minutos_restantes = int(round((total_decimales - horas_enteras) * 60))
 
@@ -99,7 +100,8 @@ def formatear_horas(total_decimales):
     horas_enteras += 1
     minutos_restantes = 0
 
-  return f"{horas_enteras} h y {minutos_restantes} min"
+  resultado = f"{horas_enteras} h y {minutos_restantes} min"
+  return f"- {resultado}" if negativo else resultado
 
 
 def calcular_totales(diccionario_registros):
@@ -110,6 +112,7 @@ def calcular_totales(diccionario_registros):
   total_hoy = diccionario_registros.get(hoy_str, 0.0)
   total_mes = 0.0
   total_semana = 0.0
+  total_historico = sum(diccionario_registros.values())
 
   # Semana: desde el último lunes hasta hoy (si es lunes, solo hoy)
   if hoy.weekday() == 0:
@@ -132,10 +135,22 @@ def calcular_totales(diccionario_registros):
     except ValueError:
       pass
 
+  # --- CÁLCULO DE DEUDA DESDE EL 16 DE JULIO DE 2026 ---
+  # 23 horas semanales -> 23 / 7 horas por día
+  inicio_deuda = datetime(2026, 7, 16)
+  dias_transcurridos = (hoy_sin_hora - inicio_deuda).days + 1
+  if dias_transcurridos < 0:
+    dias_transcurridos = 0
+
+  horas_teoricas_esperadas = dias_transcurridos * (23 / 7)
+  deuda = horas_teoricas_esperadas - total_historico
+  # Si la deuda es positiva, faltan horas. Si es negativa, vas por delante.
+
   return (
       round(total_hoy, 2),
       round(total_semana, 2),
       round(total_mes, 2),
+      round(deuda, 2),
       inicio_semana,
       inicio_mes,
   )
@@ -160,8 +175,8 @@ def sincronizar_dataframe_a_sheet(df_completo):
 hoy = datetime.now()
 hoy_str = hoy.strftime("%d-%m-%Y")
 registros_actuales = obtener_datos_hoja()
-tot_hoy, tot_sem, tot_mes, inicio_sem_dt, inicio_mes_dt = calcular_totales(
-    registros_actuales
+tot_hoy, tot_sem, tot_mes, deuda_horas, inicio_sem_dt, inicio_mes_dt = (
+    calcular_totales(registros_actuales)
 )
 
 # Diccionarios de apoyo para texto legible en español
@@ -210,21 +225,21 @@ dias_semana_lower = {
 col_izq, col_der = st.columns([1.1, 0.9])
 
 with col_izq:
-  st.title("control de horas trabajadas")
+  st.title("🕒 Gestor de Horas")
 
   # --- RESUMEN ACTUAL ---
-  st.markdown("### resumen")
+  st.markdown("### 📊 Resumen Actual")
   col1, col2, col3 = st.columns(3)
 
   dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
   mes_hoy_nombre = meses_espanol_lower[hoy.month]
 
   with col1:
-    st.metric("hoy", formatear_horas(tot_hoy))
+    st.metric("Hoy", formatear_horas(tot_hoy))
     st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
   with col2:
-    st.metric("esta semana", formatear_horas(tot_sem))
+    st.metric("Esta Semana", formatear_horas(tot_sem))
     dia_sem_nombre = dias_semana_lower[inicio_sem_dt.weekday()]
     mes_sem_nombre = meses_espanol_lower[inicio_sem_dt.month]
     st.caption(
@@ -233,17 +248,26 @@ with col_izq:
     )
 
   with col3:
-    st.metric("este mes", formatear_horas(tot_mes))
-    dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
+    st.metric("Este Mes", formatear_horas(tot_mes))
+    dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.month]  # Ajuste
     mes_mes_nombre = meses_espanol_lower[inicio_mes_dt.month]
     st.caption(
-        f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}"
+        f"Contando desde el {dias_semana_lower[inicio_mes_dt.weekday()]} 1 de"
+        f" {mes_mes_nombre}"
     )
+
+  # Fila adicional para la Deuda de Horas
+  st.markdown("<br>", unsafe_allow_html=True)
+  st.metric(
+      "📉 Deuda de Horas (Objetivo: 23h/sem desde 16 de julio)",
+      formatear_horas(deuda_horas),
+  )
+  st.caption("Horas totales pendientes de recuperar hasta la fecha actual.")
 
   st.markdown("---")
 
   # --- REGISTRAR NUEVAS HORAS (DEBAJO DEL RESUMEN) ---
-  st.markdown("### registrar trabajo hoy")
+  st.markdown("### ✍️ Registrar horas trabajadas hoy")
   input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
 
   col_h, col_m = st.columns(2)
@@ -284,20 +308,21 @@ with col_izq:
       worksheet.append_row([fec, horas_nuevas])
 
     registros_actuales = obtener_datos_hoja()
-    tot_hoy_nuevo, tot_sem_nuevo, tot_mes_nuevo, _, _ = calcular_totales(
-        registros_actuales
+    tot_hoy_nuevo, tot_sem_nuevo, tot_mes_nuevo, deuda_nueva, _, _ = (
+        calcular_totales(registros_actuales)
     )
 
     st.success(
-        f"guardao!\n\n"
+        f"✅ ¡Guardado con éxito!\n\n"
         f"- **Total Hoy:** {formatear_horas(tot_hoy_nuevo)}\n"
         f"- **Total Esta Semana:** {formatear_horas(tot_sem_nuevo)}\n"
-        f"- **Total Este Mes:** {formatear_horas(tot_mes_nuevo)}"
+        f"- **Total Este Mes:** {formatear_horas(tot_mes_nuevo)}\n"
+        f"- **Deuda Actual:** {formatear_horas(deuda_nueva)}"
     )
 
 with col_der:
   # --- TABLA DE HISTORIAL Y EDICIÓN A LA DERECHA (MENOS ANCHA) ---
-  st.subheader("toas las horas")
+  st.subheader("📋 Historial y Edición")
 
   if registros_actuales:
     lista_datos = [
@@ -355,14 +380,20 @@ with col_der:
 
             if sincronizar_dataframe_a_sheet(df_para_guardar):
               registros_actuales = obtener_datos_hoja()
-              tot_hoy_edit, tot_sem_edit, tot_mes_edit, _, _ = (
-                  calcular_totales(registros_actuales)
-              )
+              (
+                  tot_hoy_edit,
+                  tot_sem_edit,
+                  tot_mes_edit,
+                  deuda_edit,
+                  _,
+                  _,
+              ) = calcular_totales(registros_actuales)
               st.success(
                   "🔄 ¡Cambios sincronizados con éxito en Google Drive!\n\n"
                   f"- **Total Hoy:** {formatear_horas(tot_hoy_edit)}\n"
                   f"- **Total Esta Semana:** {formatear_horas(tot_sem_edit)}\n"
-                  f"- **Total Este Mes:** {formatear_horas(tot_mes_edit)}"
+                  f"- **Total Este Mes:** {formatear_horas(tot_mes_edit)}\n"
+                  f"- **Deuda Actual:** {formatear_horas(deuda_edit)}"
               )
   else:
     st.info("Aún no hay registros en la base de datos.")
