@@ -25,8 +25,17 @@ def obtener_datos_hoja():
   registros = worksheet.get_all_records()
   diccionario_registros = {}
   for fila in registros:
-    fecha = str(fila["Fecha"])
-    horas = float(fila["Horas"])
+    fecha = str(fila.get("Fecha", "")).strip()
+    if not fecha:
+      continue  # Si la fila no tiene fecha, la ignoramos
+
+    raw_horas = fila.get("Horas", 0)
+    try:
+      # Si la celda está vacía o no es un número válido, ponemos 0.0
+      horas = float(raw_horas) if str(raw_horas).strip() != "" else 0.0
+    except ValueError:
+      horas = 0.0
+
     diccionario_registros[fecha] = horas
   return diccionario_registros
 
