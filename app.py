@@ -177,7 +177,8 @@ dias_semana_lower = {
 }
 
 # ------------------ DISEÑO GENERAL DE LA INTERFAZ ------------------
-col_izq, col_der = st.columns([1, 1.2])
+# Columna izquierda más ancha y derecha más estrecha (menos ancha la tabla)
+col_izq, col_der = st.columns([1.1, 0.9])
 
 with col_izq:
   st.title("🕒 Gestor de Horas")
@@ -190,10 +191,8 @@ with col_izq:
   mes_hoy_nombre = meses_espanol_lower[hoy.month]
 
   with col1:
-    st.metric(
-        label=f"Hoy ({dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre})",
-        value=formatear_horas(tot_hoy),
-    )
+    st.metric("Hoy", formatear_horas(tot_hoy))
+    st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
   with col2:
     st.metric("Esta Semana", formatear_horas(tot_sem))
@@ -268,7 +267,7 @@ with col_izq:
     )
 
 with col_der:
-  # --- TABLA DE HISTORIAL Y EDICIÓN A LA DERECHA ---
+  # --- TABLA DE HISTORIAL Y EDICIÓN A LA DERECHA (MENOS ANCHA) ---
   st.subheader("📋 Historial y Edición")
 
   if registros_actuales:
