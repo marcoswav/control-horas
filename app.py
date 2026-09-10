@@ -7,7 +7,7 @@ import streamlit as st
 credenciales_dict = dict(st.secrets["gcp_service_account"])
 gc = gspread.service_account_from_dict(credenciales_dict)
 
-# En lugar de open_by_url, le decimos que busque el archivo por su nombre exacto:
+# Conexión buscando el archivo por su nombre exacto en Drive
 sh = gc.open("stock control horas")
 worksheet = sh.get_worksheet(0)
 
@@ -89,12 +89,10 @@ def calcular_totales(diccionario_registros):
 def sincronizar_dataframe_a_sheet(df_completo):
   """Vuelca los datos del DataFrame editado de vuelta a Google Sheets."""
   try:
-    # Preparamos los datos: cabecera + filas
     lote = [["Fecha", "Horas"]]
     for _, row in df_completo.iterrows():
       lote.append([str(row["Fecha"]), float(row["Horas"])])
 
-    # Limpiamos la hoja y actualizamos de golpe de forma ultra limpia
     worksheet.clear()
     worksheet.update(lote)
   except Exception as e:
@@ -106,7 +104,6 @@ def sincronizar_dataframe_a_sheet(df_completo):
 st.title("🕒 Gestor de Horas de Trabajo")
 hoy_str = datetime.now().strftime("%d-%m-%Y")
 
-# Cargamos datos actuales
 registros_actuales = obtener_datos_hoja()
 tot_hoy, tot_sem, tot_mes = calcular_totales(registros_actuales)
 
@@ -177,22 +174,40 @@ st.markdown("---")
 st.subheader("📋 Historial y Edición por Meses")
 
 if registros_actuales:
-  # Construimos un DataFrame ordenado por fecha
   lista_datos = [
       {"Fecha": f, "Horas": h} for f, h in registros_actuales.items()
   ]
   df_global = pd.DataFrame(lista_datos)
 
-  # Convertimos la fecha a datetime para ordenar y extraer el mes
   df_global["Fecha_dt"] = pd.to_datetime(
       df_global["Fecha"], format="%d-%m-%Y", errors="coerce"
   )
   df_global = df_global.sort_values(by="Fecha_dt", ascending=False)
-  df_global["Mes"] = df_global["Fecha_dt"].dt.strftime("%B %Y")
+
+  meses_espanol = {
+      1: "Enero",
+      2: "Febrero",
+      3: "Marzo",
+      4: "Abril",
+      5: "Mayo",
+      6: "Junio",
+      7: "Julio",
+      8: "Agosto",
+      9: "Septiembre",
+      10: "Octubre",
+      11: "Noviembre",
+      12: "Diciembre",
+  }
+  df_global["Mes"] = df_global["Fecha_dt"].apply(
+      lambda x: (
+          f"{meses_espanol[x.month]} {x.year}"
+          if pd.notnull(x)
+          else "Desconocido"
+      )
+  )
   df_global = df_global.drop(columns=["Fecha_dt"])
 
-  # Obtenemos la lista de meses disponibles para crear pestañas
-  meses_disponibles = df_global["Mes"].unique().tolist()
+  meses_disponibles = [str(m) for m in df_global["Mes"].unique().tolist()]
 
   if meses_disponibles:
     pestañas = st.tabs(meses_disponibles)
@@ -201,30 +216,23 @@ if registros_actuales:
       with pestañas[i]:
         st.write(f"Editando registros de: **{mes_nombre}**")
 
-        # Filtramos los datos correspondientes a este mes
         df_mes = df_global[df_global["Mes"] == mes_nombre][
             ["Fecha", "Horas"]
         ].reset_index(drop=True)
 
-        # Mostramos la tabla interactiva y editable
         df_editado = st.data_editor(
             df_mes,
-            key=f"editor_{mes_nombre}",
+            key=f"editor_{i}_{mes_nombre}",
             use_container_width=True,
             hide_index=True,
         )
 
-        # Si el usuario modifica algo en la tabla, actualizamos el conjunto completo y guardamos en Drive
         if not df_editado.equals(df_mes):
-          # Actualizamos el bloque correspondiente en el dataframe global
           df_global.loc[df_global["Mes"] == mes_nombre, "Horas"] = df_editado[
               "Horas"
           ].values
-
-          # Quitamos la columna 'Mes' antes de enviar a Google Sheets
           df_para_guardar = df_global[["Fecha", "Horas"]]
 
-          # Sincronizamos con Google Drive
           sincronizar_dataframe_a_sheet(df_para_guardar)
           st.success(
               "🔄 ¡Cambios guardados y sincronizados con Google Drive en"
