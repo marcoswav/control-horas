@@ -104,6 +104,31 @@ def formatear_horas(total_decimales):
   return f"- {resultado}" if negativo else resultado
 
 
+def parsear_horas_texto(valor):
+  """Convierte de vuelta una cadena tipo '8 h y 30 min' o número a decimal."""
+  if pd.isnull(valor):
+    return 0.0
+  if isinstance(valor, (int, float)):
+    return float(valor)
+
+  val_str = str(valor).lower().strip()
+  try:
+    if "h" in val_str or "min" in val_str:
+      partes = val_str.replace(" y ", " ").split()
+      h = 0.0
+      m = 0.0
+      for i, p in enumerate(partes):
+        if "h" in p and i > 0:
+          h = float(partes[i - 1])
+        elif "min" in p and i > 0:
+          m = float(partes[i - 1])
+      return h + (m / 60.0)
+    else:
+      return float(val_str)
+  except Exception:
+    return 0.0
+
+
 def calcular_totales(diccionario_registros):
   hoy = datetime.now()
   hoy_sin_hora = hoy.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -159,7 +184,9 @@ def sincronizar_dataframe_a_sheet(df_completo):
   try:
     lote = [["Fecha", "Horas"]]
     for _, row in df_completo.iterrows():
-      lote.append([str(row["Fecha"]), float(row["Horas"])])
+      # Asegurar que se guarden en formato numérico decimal limpio en la hoja
+      horas_decimal = parsear_horas_texto(row["Horas"])
+      lote.append([str(row["Fecha"]), float(horas_decimal)])
 
     worksheet.clear()
     worksheet.update(lote)
@@ -352,17 +379,23 @@ with col_der:
               ["Fecha", "Horas"]
           ].reset_index(drop=True)
 
+          # Convertir la columna de horas decimales a formato legible de horas y minutos para la tabla
+          df_mes_visual = df_mes.copy()
+          df_mes_visual["Horas"] = df_mes_visual["Horas"].apply(formatear_horas)
+
           df_editado = st.data_editor(
-              df_mes,
+              df_mes_visual,
               key=f"editor_{i}_{mes_nombre}",
               use_container_width=True,
               hide_index=True,
               height=400,
           )
 
-          if not df_editado.equals(df_mes):
+          # Si el usuario edita algo, comparamos con los datos visuales originales
+          if not df_editado.equals(df_mes_visual):
+            # Actualizamos el dataframe global convirtiendo los textos editados de vuelta a formato numérico
             df_global_asc.loc[df_global_asc["Mes"] == mes_nombre, "Horas"] = (
-                df_editado["Horas"].values
+                df_editado["Horas"].apply(parsear_horas_texto).values
             )
             df_para_guardar = df_global_asc[["Fecha", "Horas"]]
 
