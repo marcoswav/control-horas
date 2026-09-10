@@ -5,7 +5,9 @@ import streamlit as st
 
 # Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
-    page_title="horas Stock", page_icon="https://cdn-icons-png.flaticon.com/512/194/194978.png", layout="wide"
+    page_title="horas Stock",
+    page_icon="https://cdn-icons-png.flaticon.com/512/194/194978.png",
+    layout="wide",
 )
 
 # ------------------ ESTILOS CSS (TIPOGRAFÍA MÁS GRANDE SALVO TÍTULOS) ------------------
@@ -31,6 +33,14 @@ st.markdown(
         /* Textos dentro de tablas / editores de datos */
         .stDataFrame, .stTable, [data-testid="stDataEditor"] {
             font-size: 1rem !important;
+        }
+
+        /* EVITAR PUNTOS SUSPENSIVOS Y PERMITIR SALTO DE LÍNEA EN TABLAS (MÓVIL) */
+        [data-testid="stDataEditor"] div[data-baseweb="input"] input,
+        [data-testid="stDataEditor"] [role="gridcell"] {
+            white-space: normal !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
         }
     </style>
 """,
@@ -116,18 +126,15 @@ def fecha_a_formato_humano(fec_str):
 def formato_humano_a_fecha(humano_str):
   """Intenta revertir 'lunes 1 de septiembre' o similares a 'DD-MM-YYYY'."""
   humano_str = str(humano_str).strip().lower()
-  # Si ya viene en formato DD-MM-YYYY, devolverlo tal cual
   try:
     datetime.strptime(humano_str, "%d-%m-%Y")
     return humano_str
   except ValueError:
     pass
 
-  # Intentar buscar año actual si no se especifica
   hoy_anio = datetime.now().year
   for num_mes, nombre_mes in meses_espanol_lower.items():
     if nombre_mes in humano_str:
-      # Extraer el número del día buscando dígitos en la cadena
       import re
 
       numeros = re.findall(r"\d+", humano_str)
@@ -219,14 +226,12 @@ def calcular_totales(diccionario_registros):
   total_semana = 0.0
   total_historico = sum(diccionario_registros.values())
 
-  # Semana: desde el último lunes hasta hoy (si es lunes, solo hoy)
   if hoy.weekday() == 0:
     inicio_semana = hoy_sin_hora
   else:
     inicio_semana = hoy_sin_hora - timedelta(days=hoy.weekday())
   fin_semana = hoy
 
-  # Mes: desde el día 1 del mes actual hasta hoy
   inicio_mes = hoy_sin_hora.replace(day=1)
   fin_mes = hoy
 
@@ -240,7 +245,6 @@ def calcular_totales(diccionario_registros):
     except ValueError:
       pass
 
-  # --- CÁLCULO DE DEUDA DESDE EL 16 DE JULIO DE 2026 ---
   inicio_deuda = datetime(2026, 7, 16)
   dias_transcurridos = (hoy_sin_hora - inicio_deuda).days + 1
   if dias_transcurridos < 0:
@@ -264,7 +268,6 @@ def sincronizar_dataframe_a_sheet(df_completo):
   try:
     lote = [["Fecha", "Horas"]]
     for _, row in df_completo.iterrows():
-      # Normalizar fecha de vuelta a DD-MM-YYYY antes de guardar
       fecha_limpia = formato_humano_a_fecha(row["Fecha"])
       fecha_limpia = limpiar_fecha(fecha_limpia)
 
@@ -300,26 +303,32 @@ with col_izq:
   dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
   mes_hoy_nombre = meses_espanol_lower[hoy.month]
 
+  # Tarjeta para 'Hoy'
   with col1:
-    st.metric("Hoy", formatear_horas(tot_hoy))
-    st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
+    with st.container(border=True):
+      st.metric("Hoy", formatear_horas(tot_hoy))
+      st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
+  # Tarjeta para 'Semana'
   with col2:
-    st.metric("Semana", formatear_horas(tot_sem))
-    dia_sem_nombre = dias_semana_lower[inicio_sem_dt.weekday()]
-    mes_sem_nombre = meses_espanol_lower[inicio_sem_dt.month]
-    st.caption(
-        f"Contando desde el {dia_sem_nombre} {inicio_sem_dt.day}"
-        f" de {mes_sem_nombre}"
-    )
+    with st.container(border=True):
+      st.metric("Semana", formatear_horas(tot_sem))
+      dia_sem_nombre = dias_semana_lower[inicio_sem_dt.weekday()]
+      mes_sem_nombre = meses_espanol_lower[inicio_sem_dt.month]
+      st.caption(
+          f"Contando desde el {dia_sem_nombre} {inicio_sem_dt.day}"
+          f" de {mes_sem_nombre}"
+      )
 
+  # Tarjeta para 'Mes'
   with col3:
-    st.metric("Mes", formatear_horas(tot_mes))
-    dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
-    mes_mes_nombre = meses_espanol_lower[inicio_mes_dt.month]
-    st.caption(
-        f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}"
-    )
+    with st.container(border=True):
+      st.metric("Mes", formatear_horas(tot_mes))
+      dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
+      mes_mes_nombre = meses_espanol_lower[inicio_mes_dt.month]
+      st.caption(
+          f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}"
+      )
 
   st.markdown("---")
 
@@ -399,14 +408,12 @@ with col_der:
         )
     )
 
-    # Ordenar los meses de forma descendente (más reciente primero)
     df_global_desc = df_global.sort_values(by="Fecha_dt", ascending=False)
     meses_disponibles = []
     for m in df_global_desc["Mes"]:
       if m not in meses_disponibles:
         meses_disponibles.append(m)
 
-    # Para los datos dentro de cada pestaña, orden ascendente
     df_global_asc = df_global.sort_values(by="Fecha_dt", ascending=True)
     df_global_asc = df_global_asc.drop(columns=["Fecha_dt"])
 
@@ -421,7 +428,6 @@ with col_der:
               ["Fecha", "Horas"]
           ].reset_index(drop=True)
 
-          # Convertir formato de fecha a humano (ej. 'lunes 1 de septiembre') y horas a formato legible
           df_mes_visual = df_mes.copy()
           df_mes_visual["Fecha"] = df_mes_visual["Fecha"].apply(
               fecha_a_formato_humano
@@ -433,12 +439,10 @@ with col_der:
               key=f"editor_{i}_{mes_nombre}",
               use_container_width=True,
               hide_index=True,
-              height=400,
+              height=260,  # ~7 filas visibles
           )
 
-          # Si el usuario edita algo, actualizamos
           if not df_editado.equals(df_mes_visual):
-            # Revertir cada fecha visual modificada a formato estándar para guardar
             fechas_convertidas = df_editado["Fecha"].apply(
                 formato_humano_a_fecha
             )
@@ -471,7 +475,6 @@ with col_der:
   else:
     st.info("Aún no hay registros en la base de datos.")
 
-  # --- APARTADO DE DEUDA DEBAJO DE LA TABLA ---
   st.markdown("---")
   st.markdown("### Horas a recuperar")
   st.metric(
