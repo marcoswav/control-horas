@@ -5,7 +5,7 @@ import streamlit as st
 
 # Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
-    page_title="Gestor de Horas", page_icon="🕒", layout="wide"
+    page_title="Control horas Stock", page_icon="https://cdn-icons-png.flaticon.com/512/4600/4600333.png", layout="wide"
 )
 
 # ------------------ ESTILOS CSS (TIPOGRAFÍA MÁS GRANDE SALVO TÍTULOS) ------------------
@@ -77,13 +77,13 @@ meses_espanol_lower = {
 }
 
 dias_semana_lower = {
-    0: "lunes",
-    1: "martes",
-    2: "miércoles",
-    3: "jueves",
-    4: "viernes",
-    5: "sábado",
-    6: "domingo",
+    0: "L",
+    1: "M",
+    2: "X",
+    3: "J",
+    4: "V",
+    5: "S",
+    6: "D",
 }
 
 
@@ -291,10 +291,10 @@ tot_hoy, tot_sem, tot_mes, deuda_horas, inicio_sem_dt, inicio_mes_dt = (
 col_izq, col_der = st.columns([1.1, 0.9])
 
 with col_izq:
-  st.title("🕒 Gestor de Horas")
+  st.title("Control horas work")
 
   # --- RESUMEN ACTUAL ---
-  st.markdown("### 📊 Resumen Actual")
+  st.markdown("### Resumen actual")
   col1, col2, col3 = st.columns(3)
 
   dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
@@ -324,7 +324,7 @@ with col_izq:
   st.markdown("---")
 
   # --- REGISTRAR NUEVAS HORAS ---
-  st.markdown("### ✍️ Registrar horas trabajadas hoy")
+  st.markdown("### Registrar horas workeadas")
   input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
 
   col_h, col_m = st.columns(2)
@@ -370,7 +370,7 @@ with col_izq:
     )
 
     st.success(
-        f"✅ ¡Guardado con éxito!\n\n"
+        f"guardao!\n\n"
         f"- **Total Hoy:** {formatear_horas(tot_hoy_nuevo)}\n"
         f"- **Total Esta Semana:** {formatear_horas(tot_sem_nuevo)}\n"
         f"- **Total Este Mes:** {formatear_horas(tot_mes_nuevo)}\n"
@@ -379,7 +379,7 @@ with col_izq:
 
 with col_der:
   # --- TABLA DE HISTORIAL Y EDICIÓN ---
-  st.subheader("📋 Historial y Edición")
+  st.subheader("Horas workeadas anteriormente")
 
   if registros_actuales:
     lista_datos = [
@@ -473,9 +473,9 @@ with col_der:
 
   # --- APARTADO DE DEUDA DEBAJO DE LA TABLA ---
   st.markdown("---")
-  st.markdown("### 📉 Balance de Deuda")
+  st.markdown("### Horas a recuperar")
   st.metric(
-      "Deuda de Horas (Objetivo: 23h/sem desde 16 de julio)",
+      "Total de horas a recuperar (Objetivo: 23h/sem desde 16 de julio)",
       formatear_horas(deuda_horas),
   )
   st.caption(
