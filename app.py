@@ -15,7 +15,8 @@ import streamlit as st
 credenciales_dict = dict(st.secrets["gcp_service_account"])
 gc = gspread.service_account_from_dict(credenciales_dict)
 
-sh = gc.open("Control Horas")  # El nombre exacto de tu hoja en Drive
+sh = gc.open_by_url(
+    "https://docs.google.com/spreadsheets/d/EL_ENLACE_DE_TU_HOJA_AQUI")  # El nombre exacto de tu hoja en Drive
 worksheet = sh.get_worksheet(0)
 
 
