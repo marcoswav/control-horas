@@ -54,6 +54,20 @@ def obtener_datos_hoja():
   return diccionario_registros
 
 
+def formatear_horas(total_decimales):
+  """Convierte un número decimal a formato legible de horas y minutos."""
+  if total_decimales < 0:
+    total_decimales = 0.0
+  horas_enteras = int(total_decimales)
+  minutos_restantes = int(round((total_decimales - horas_enteras) * 60))
+
+  if minutos_restantes == 60:
+    horas_enteras += 1
+    minutos_restantes = 0
+
+  return f"{horas_enteras} h y {minutos_restantes} min"
+
+
 def calcular_totales(diccionario_registros):
   hoy = datetime.now()
   hoy_str = hoy.strftime("%d-%m-%Y")
@@ -69,20 +83,33 @@ def calcular_totales(diccionario_registros):
   )
   fin_semana = inicio_semana + timedelta(days=6, hours=23, minutes=59)
 
+  dias_semana = []
+  dias_mes = []
+
   for fecha_str, horas in diccionario_registros.items():
     try:
       fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
       if fecha_dt.strftime("%m-%Y") == mes_actual_str:
         total_mes += horas
+        dias_mes.append(fecha_str)
       if inicio_semana <= fecha_dt <= fin_semana:
         total_semana += horas
+        dias_semana.append(fecha_str)
     except ValueError:
       pass
+
+  # Ordenar las fechas cronológicamente para mayor claridad
+  dias_semana = sorted(
+      dias_semana, key=lambda x: datetime.strptime(x, "%d-%m-%Y")
+  )
+  dias_mes = sorted(dias_mes, key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
 
   return (
       round(total_hoy, 2),
       round(total_semana, 2),
       round(total_mes, 2),
+      dias_semana,
+      dias_mes,
   )
 
 
@@ -107,27 +134,46 @@ st.title("🕒 Gestor de Horas de Trabajo")
 hoy_str = datetime.now().strftime("%d-%m-%Y")
 
 registros_actuales = obtener_datos_hoja()
-tot_hoy, tot_sem, tot_mes = calcular_totales(registros_actuales)
+tot_hoy, tot_sem, tot_mes, dias_sem, dias_m = calcular_totales(
+    registros_actuales
+)
 
 # --- RESUMEN SUPERIOR ---
 st.markdown("### 📊 Resumen Actual")
 col1, col2, col3 = st.columns(3)
+
 with col1:
-  st.metric("Hoy", f"{tot_hoy} h")
+  st.metric("Hoy", formatear_horas(tot_hoy))
+  st.caption(f"Día: {hoy_str}")
+
 with col2:
-  st.metric("Esta Semana", f"{tot_sem} h")
+  st.metric("Esta Semana", formatear_horas(tot_sem))
+  if dias_sem:
+    st.caption(f"Días: {', '.join(dias_sem)}")
+  else:
+    st.caption("Sin registros esta semana")
+
 with col3:
-  st.metric("Este Mes", f"{tot_mes} h")
+  st.metric("Este Mes", formatear_horas(tot_mes))
+  if dias_m:
+    st.caption(f"Días ({len(dias_m)}): {', '.join(dias_m)}")
+  else:
+    st.caption("Sin registros este mes")
 
 st.markdown("---")
 
 # --- REGISTRAR NUEVAS HORAS ---
 st.subheader("Registrar Horas")
 input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
-input_horas = st.number_input("Horas enteras:", min_value=0, value=8, step=1)
-input_minutos = st.number_input(
-    "Minutos extra:", min_value=0, max_value=59, value=0, step=1
-)
+
+# Selector de horas y minutos uno al lado del otro
+col_h, col_m = st.columns(2)
+with col_h:
+  input_horas = st.number_input("Horas enteras:", min_value=0, value=8, step=1)
+with col_m:
+  input_minutos = st.number_input(
+      "Minutos extra:", min_value=0, max_value=59, value=0, step=1
+  )
 
 if st.button("Guardar en Google Drive", type="primary"):
   horas_nuevas = round(input_horas + (input_minutos / 60), 2)
@@ -159,15 +205,15 @@ if st.button("Guardar en Google Drive", type="primary"):
     worksheet.append_row([fec, horas_nuevas])
 
   registros_actuales = obtener_datos_hoja()
-  tot_hoy_nuevo, tot_sem_nuevo, tot_mes_nuevo = calcular_totales(
+  tot_hoy_nuevo, tot_sem_nuevo, tot_mes_nuevo, _, _ = calcular_totales(
       registros_actuales
   )
 
   st.success(
       f"✅ ¡Guardado con éxito!\n\n"
-      f"- **Total Hoy:** {tot_hoy_nuevo} h\n"
-      f"- **Total Esta Semana:** {tot_sem_nuevo} h\n"
-      f"- **Total Este Mes:** {tot_mes_nuevo} h"
+      f"- **Total Hoy:** {formatear_horas(tot_hoy_nuevo)}\n"
+      f"- **Total Esta Semana:** {formatear_horas(tot_sem_nuevo)}\n"
+      f"- **Total Este Mes:** {formatear_horas(tot_mes_nuevo)}"
   )
 
 st.markdown("---")
@@ -237,14 +283,14 @@ if registros_actuales:
 
           if sincronizar_dataframe_a_sheet(df_para_guardar):
             registros_actuales = obtener_datos_hoja()
-            tot_hoy_edit, tot_sem_edit, tot_mes_edit = calcular_totales(
+            tot_hoy_edit, tot_sem_edit, tot_mes_edit, _, _ = calcular_totales(
                 registros_actuales
             )
             st.success(
                 "🔄 ¡Cambios sincronizados con éxito en Google Drive!\n\n"
-                f"- **Total Hoy:** {tot_hoy_edit} h\n"
-                f"- **Total Esta Semana:** {tot_sem_edit} h\n"
-                f"- **Total Este Mes:** {tot_mes_edit} h"
+                f"- **Total Hoy:** {formatear_horas(tot_hoy_edit)}\n"
+                f"- **Total Esta Semana:** {formatear_horas(tot_sem_edit)}\n"
+                f"- **Total Este Mes:** {formatear_horas(tot_mes_edit)}"
             )
 else:
   st.info("Aún no hay registros en la base de datos.")
