@@ -5,7 +5,7 @@ import streamlit as st
 
 # Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
-    page_title="Gestor de Horas", page_icon="🕒", layout="wide"
+    page_title="control horas stock", page_icon="🔧", layout="wide"
 )
 
 # ------------------ CONEXIÓN CON GOOGLE SHEETS ------------------
