@@ -256,7 +256,6 @@ with col_der:
     df_global["Fecha_dt"] = pd.to_datetime(
         df_global["Fecha"], format="%d-%m-%Y", errors="coerce"
     )
-    df_global = df_global.sort_values(by="Fecha_dt", ascending=True)
 
     df_global["Mes"] = df_global["Fecha_dt"].apply(
         lambda x: (
@@ -265,17 +264,17 @@ with col_der:
             else "Desconocido"
         )
     )
-    df_global = df_global.drop(columns=["Fecha_dt"])
 
-    meses_disponibles = [str(m) for m in df_global["Mes"].unique().tolist()]
+    # Ordenar los meses de forma descendente (más reciente primero: Septiembre, Agosto, Julio...)
+    df_global_desc = df_global.sort_values(by="Fecha_dt", ascending=False)
+    meses_disponibles = []
+    for m in df_global_desc["Mes"]:
+      if m not in meses_disponibles:
+        meses_disponibles.append(m)
 
-    # Poner el mes actual en primer lugar para que aparezca seleccionado por defecto
-    mes_actual_nombre = (
-        f"{meses_espanol[datetime.now().month]} {datetime.now().year}"
-    )
-    if mes_actual_nombre in meses_disponibles:
-      meses_disponibles.remove(mes_actual_nombre)
-      meses_disponibles.insert(0, mes_actual_nombre)
+    # Para los datos dentro de cada pestaña, orden ascendente (antiguo arriba, hoy abajo)
+    df_global_asc = df_global.sort_values(by="Fecha_dt", ascending=True)
+    df_global_asc = df_global_asc.drop(columns=["Fecha_dt"])
 
     if meses_disponibles:
       pestañas = st.tabs(meses_disponibles)
@@ -284,7 +283,7 @@ with col_der:
         with pestañas[i]:
           st.write(f"Editando registros de: **{mes_nombre}**")
 
-          df_mes = df_global[df_global["Mes"] == mes_nombre][
+          df_mes = df_global_asc[df_global_asc["Mes"] == mes_nombre][
               ["Fecha", "Horas"]
           ].reset_index(drop=True)
 
@@ -297,10 +296,10 @@ with col_der:
           )
 
           if not df_editado.equals(df_mes):
-            df_global.loc[df_global["Mes"] == mes_nombre, "Horas"] = df_editado[
-                "Horas"
-            ].values
-            df_para_guardar = df_global[["Fecha", "Horas"]]
+            df_global_asc.loc[df_global_asc["Mes"] == mes_nombre, "Horas"] = (
+                df_editado["Horas"].values
+            )
+            df_para_guardar = df_global_asc[["Fecha", "Horas"]]
 
             if sincronizar_dataframe_a_sheet(df_para_guardar):
               registros_actuales = obtener_datos_hoja()
