@@ -3,6 +3,11 @@ import gspread
 import pandas as pd
 import streamlit as st
 
+# Configuración de la página en ancho ampliado para aprovechar las columnas
+st.set_page_config(
+    page_title="Gestor de Horas", page_icon="🕒", layout="wide"
+)
+
 # ------------------ CONEXIÓN CON GOOGLE SHEETS ------------------
 credenciales_dict = dict(st.secrets["gcp_service_account"])
 gc = gspread.service_account_from_dict(credenciales_dict)
@@ -70,18 +75,23 @@ def formatear_horas(total_decimales):
 
 def calcular_totales(diccionario_registros):
   hoy = datetime.now()
+  hoy_sin_hora = hoy.replace(hour=0, minute=0, second=0, microsecond=0)
   hoy_str = hoy.strftime("%d-%m-%Y")
-  mes_actual_str = hoy.strftime("%m-%Y")
 
   total_hoy = diccionario_registros.get(hoy_str, 0.0)
   total_mes = 0.0
   total_semana = 0.0
 
-  inicio_semana = hoy - timedelta(days=hoy.weekday())
-  inicio_semana = inicio_semana.replace(
-      hour=0, minute=0, second=0, microsecond=0
-  )
-  fin_semana = inicio_semana + timedelta(days=6, hours=23, minutes=59)
+  # Semana: desde el último lunes hasta hoy (si es lunes, solo hoy)
+  if hoy.weekday() == 0:
+    inicio_semana = hoy_sin_hora
+  else:
+    inicio_semana = hoy_sin_hora - timedelta(days=hoy.weekday())
+  fin_semana = hoy
+
+  # Mes: desde el día 1 del mes actual hasta hoy
+  inicio_mes = hoy_sin_hora.replace(day=1)
+  fin_mes = hoy
 
   dias_semana = []
   dias_mes = []
@@ -89,16 +99,15 @@ def calcular_totales(diccionario_registros):
   for fecha_str, horas in diccionario_registros.items():
     try:
       fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
-      if fecha_dt.strftime("%m-%Y") == mes_actual_str:
-        total_mes += horas
-        dias_mes.append(fecha_str)
       if inicio_semana <= fecha_dt <= fin_semana:
         total_semana += horas
         dias_semana.append(fecha_str)
+      if inicio_mes <= fecha_dt <= fin_mes:
+        total_mes += horas
+        dias_mes.append(fecha_str)
     except ValueError:
       pass
 
-  # Ordenar las fechas cronológicamente para mayor claridad
   dias_semana = sorted(
       dias_semana, key=lambda x: datetime.strptime(x, "%d-%m-%Y")
   )
@@ -149,148 +158,149 @@ with col1:
 with col2:
   st.metric("Esta Semana", formatear_horas(tot_sem))
   if dias_sem:
-    st.caption(f"Días: {', '.join(dias_sem)}")
+    st.caption(f"Días (Lunes a hoy): {', '.join(dias_sem)}")
   else:
     st.caption("Sin registros esta semana")
 
 with col3:
   st.metric("Este Mes", formatear_horas(tot_mes))
   if dias_m:
-    st.caption(f"Días ({len(dias_m)}): {', '.join(dias_m)}")
+    st.caption(f"Días (Día 1 a hoy): {', '.join(dias_m)}")
   else:
     st.caption("Sin registros este mes")
 
 st.markdown("---")
 
-# --- REGISTRAR NUEVAS HORAS ---
-st.subheader("Registrar Horas")
-input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
+# --- DISEÑO EN DOS COLUMNAS (IZQ: REGISTRO | DER: TABLA) ---
+col_izq, col_der = st.columns([1, 1.2])
 
-# Selector de horas y minutos uno al lado del otro
-col_h, col_m = st.columns(2)
-with col_h:
-  input_horas = st.number_input("Horas enteras:", min_value=0, value=8, step=1)
-with col_m:
-  input_minutos = st.number_input(
-      "Minutos extra:", min_value=0, max_value=59, value=0, step=1
-  )
+with col_izq:
+  st.subheader("Registrar Horas")
+  input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
 
-if st.button("Guardar en Google Drive", type="primary"):
-  horas_nuevas = round(input_horas + (input_minutos / 60), 2)
-  fec = limpiar_fecha(input_fecha)
+  col_h, col_m = st.columns(2)
+  with col_h:
+    input_horas = st.number_input("Horas enteras:", min_value=0, value=8, step=1)
+  with col_m:
+    input_minutos = st.number_input(
+        "Minutos extra:", min_value=0, max_value=59, value=0, step=1
+    )
 
-  try:
-    columna_fechas_raw = worksheet.col_values(1)
-  except Exception:
-    columna_fechas_raw = []
+  if st.button("Guardar en Google Drive", type="primary"):
+    horas_nuevas = round(input_horas + (input_minutos / 60), 2)
+    fec = limpiar_fecha(input_fecha)
 
-  encontrado = False
-  fila_encontrada = -1
-
-  for idx, val in enumerate(columna_fechas_raw[1:], start=2):
-    if limpiar_fecha(val) == fec:
-      encontrado = True
-      fila_encontrada = idx
-      break
-
-  if encontrado:
     try:
-      valor_previo = float(worksheet.cell(fila_encontrada, 2).value or 0)
-    except ValueError:
-      valor_previo = 0.0
+      columna_fechas_raw = worksheet.col_values(1)
+    except Exception:
+      columna_fechas_raw = []
 
-    nuevo_total_dia = round(valor_previo + horas_nuevas, 2)
-    worksheet.update_cell(fila_encontrada, 2, nuevo_total_dia)
-  else:
-    worksheet.append_row([fec, horas_nuevas])
+    encontrado = False
+    fila_encontrada = -1
 
-  registros_actuales = obtener_datos_hoja()
-  tot_hoy_nuevo, tot_sem_nuevo, tot_mes_nuevo, _, _ = calcular_totales(
-      registros_actuales
-  )
+    for idx, val in enumerate(columna_fechas_raw[1:], start=2):
+      if limpiar_fecha(val) == fec:
+        encontrado = True
+        fila_encontrada = idx
+        break
 
-  st.success(
-      f"✅ ¡Guardado con éxito!\n\n"
-      f"- **Total Hoy:** {formatear_horas(tot_hoy_nuevo)}\n"
-      f"- **Total Esta Semana:** {formatear_horas(tot_sem_nuevo)}\n"
-      f"- **Total Este Mes:** {formatear_horas(tot_mes_nuevo)}"
-  )
+    if encontrado:
+      try:
+        valor_previo = float(worksheet.cell(fila_encontrada, 2).value or 0)
+      except ValueError:
+        valor_previo = 0.0
 
-st.markdown("---")
+      nuevo_total_dia = round(valor_previo + horas_nuevas, 2)
+      worksheet.update_cell(fila_encontrada, 2, nuevo_total_dia)
+    else:
+      worksheet.append_row([fec, horas_nuevas])
 
-# --- TABLA EDITABLE Y AGRUPADA POR MES ---
-st.subheader("📋 Historial y Edición por Meses")
+    registros_actuales = obtener_datos_hoja()
+    tot_hoy_nuevo, tot_sem_nuevo, tot_mes_nuevo, _, _ = calcular_totales(
+        registros_actuales
+    )
 
-if registros_actuales:
-  lista_datos = [
-      {"Fecha": f, "Horas": h} for f, h in registros_actuales.items()
-  ]
-  df_global = pd.DataFrame(lista_datos)
+    st.success(
+        f"✅ ¡Guardado con éxito!\n\n"
+        f"- **Total Hoy:** {formatear_horas(tot_hoy_nuevo)}\n"
+        f"- **Total Esta Semana:** {formatear_horas(tot_sem_nuevo)}\n"
+        f"- **Total Este Mes:** {formatear_horas(tot_mes_nuevo)}"
+    )
 
-  df_global["Fecha_dt"] = pd.to_datetime(
-      df_global["Fecha"], format="%d-%m-%Y", errors="coerce"
-  )
-  df_global = df_global.sort_values(by="Fecha_dt", ascending=False)
+with col_der:
+  st.subheader("📋 Historial y Edición por Meses")
 
-  meses_espanol = {
-      1: "Enero",
-      2: "Febrero",
-      3: "Marzo",
-      4: "Abril",
-      5: "Mayo",
-      6: "Junio",
-      7: "Julio",
-      8: "Agosto",
-      9: "Septiembre",
-      10: "Octubre",
-      11: "Noviembre",
-      12: "Diciembre",
-  }
-  df_global["Mes"] = df_global["Fecha_dt"].apply(
-      lambda x: (
-          f"{meses_espanol[x.month]} {x.year}"
-          if pd.notnull(x)
-          else "Desconocido"
-      )
-  )
-  df_global = df_global.drop(columns=["Fecha_dt"])
+  if registros_actuales:
+    lista_datos = [
+        {"Fecha": f, "Horas": h} for f, h in registros_actuales.items()
+    ]
+    df_global = pd.DataFrame(lista_datos)
 
-  meses_disponibles = [str(m) for m in df_global["Mes"].unique().tolist()]
+    df_global["Fecha_dt"] = pd.to_datetime(
+        df_global["Fecha"], format="%d-%m-%Y", errors="coerce"
+    )
+    # Orden ascendente para que los días antiguos estén arriba y hoy al final (abajo)
+    df_global = df_global.sort_values(by="Fecha_dt", ascending=True)
 
-  if meses_disponibles:
-    pestañas = st.tabs(meses_disponibles)
-
-    for i, mes_nombre in enumerate(meses_disponibles):
-      with pestañas[i]:
-        st.write(f"Editando registros de: **{mes_nombre}**")
-
-        df_mes = df_global[df_global["Mes"] == mes_nombre][
-            ["Fecha", "Horas"]
-        ].reset_index(drop=True)
-
-        df_editado = st.data_editor(
-            df_mes,
-            key=f"editor_{i}_{mes_nombre}",
-            use_container_width=True,
-            hide_index=True,
+    meses_espanol = {
+        1: "Enero",
+        2: "Febrero",
+        3: "Marzo",
+        4: "Abril",
+        5: "Mayo",
+        6: "Junio",
+        7: "Julio",
+        8: "Agosto",
+        9: "Septiembre",
+        10: "Octubre",
+        11: "Noviembre",
+        12: "Diciembre",
+    }
+    df_global["Mes"] = df_global["Fecha_dt"].apply(
+        lambda x: (
+            f"{meses_espanol[x.month]} {x.year}"
+            if pd.notnull(x)
+            else "Desconocido"
         )
+    )
+    df_global = df_global.drop(columns=["Fecha_dt"])
 
-        if not df_editado.equals(df_mes):
-          df_global.loc[df_global["Mes"] == mes_nombre, "Horas"] = df_editado[
-              "Horas"
-          ].values
-          df_para_guardar = df_global[["Fecha", "Horas"]]
+    meses_disponibles = [str(m) for m in df_global["Mes"].unique().tolist()]
 
-          if sincronizar_dataframe_a_sheet(df_para_guardar):
-            registros_actuales = obtener_datos_hoja()
-            tot_hoy_edit, tot_sem_edit, tot_mes_edit, _, _ = calcular_totales(
-                registros_actuales
-            )
-            st.success(
-                "🔄 ¡Cambios sincronizados con éxito en Google Drive!\n\n"
-                f"- **Total Hoy:** {formatear_horas(tot_hoy_edit)}\n"
-                f"- **Total Esta Semana:** {formatear_horas(tot_sem_edit)}\n"
-                f"- **Total Este Mes:** {formatear_horas(tot_mes_edit)}"
-            )
-else:
-  st.info("Aún no hay registros en la base de datos.")
+    if meses_disponibles:
+      pestañas = st.tabs(meses_disponibles)
+
+      for i, mes_nombre in enumerate(meses_disponibles):
+        with pestañas[i]:
+          st.write(f"Editando registros de: **{mes_nombre}**")
+
+          df_mes = df_global[df_global["Mes"] == mes_nombre][
+              ["Fecha", "Horas"]
+          ].reset_index(drop=True)
+
+          df_editado = st.data_editor(
+              df_mes,
+              key=f"editor_{i}_{mes_nombre}",
+              use_container_width=True,
+              hide_index=True,
+          )
+
+          if not df_editado.equals(df_mes):
+            df_global.loc[df_global["Mes"] == mes_nombre, "Horas"] = df_editado[
+                "Horas"
+            ].values
+            df_para_guardar = df_global[["Fecha", "Horas"]]
+
+            if sincronizar_dataframe_a_sheet(df_para_guardar):
+              registros_actuales = obtener_datos_hoja()
+              tot_hoy_edit, tot_sem_edit, tot_mes_edit, _, _ = (
+                  calcular_totales(registros_actuales)
+              )
+              st.success(
+                  "🔄 ¡Cambios sincronizados con éxito en Google Drive!\n\n"
+                  f"- **Total Hoy:** {formatear_horas(tot_hoy_edit)}\n"
+                  f"- **Total Esta Semana:** {formatear_horas(tot_sem_edit)}\n"
+                  f"- **Total Este Mes:** {formatear_horas(tot_mes_edit)}"
+              )
+  else:
+    st.info("Aún no hay registros en la base de datos.")
