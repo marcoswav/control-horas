@@ -204,23 +204,25 @@ def parsear_horas_texto(valor):
 
 
 def calcular_totales(diccionario_registros):
-  hoy = datetime.now()
-  hoy_sin_hora = hoy.replace(hour=0, minute=0, second=0, microsecond=0)
-  hoy_str = hoy.strftime("%d-%m-%Y")
+  hoy_calc = datetime.now()
+  hoy_sin_hora = hoy_calc.replace(
+      hour=0, minute=0, second=0, microsecond=0
+  )
+  hoy_str_calc = hoy_calc.strftime("%d-%m-%Y")
 
-  total_hoy = diccionario_registros.get(hoy_str, 0.0)
+  total_hoy = diccionario_registros.get(hoy_str_calc, 0.0)
   total_mes = 0.0
   total_semana = 0.0
   total_historico = sum(diccionario_registros.values())
 
-  if hoy.weekday() == 0:
+  if hoy_calc.weekday() == 0:
     inicio_semana = hoy_sin_hora
   else:
-    inicio_semana = hoy_sin_hora - timedelta(days=hoy.weekday())
-  fin_semana = hoy
+    inicio_semana = hoy_sin_hora - timedelta(days=hoy_calc.weekday())
+  fin_semana = hoy_calc
 
   inicio_mes = hoy_sin_hora.replace(day=1)
-  fin_mes = hoy
+  fin_mes = hoy_calc
 
   for fecha_str, horas in diccionario_registros.items():
     try:
@@ -267,8 +269,10 @@ def sincronizar_dataframe_a_sheet(df_completo):
     return False
 
 
-# ------------------ GESTIÓN DE ESTADO (SESSION STATE) ------------------
-# Usamos st.session_state para almacenar los registros y evitar retrasos de Google Sheets
+# ------------------ INICIALIZACIÓN DE FECHA Y ESTADO ------------------
+hoy = datetime.now()
+hoy_str = hoy.strftime("%d-%m-%Y")
+
 if "registros" not in st.session_state:
   st.session_state["registros"] = obtener_datos_hoja()
 
@@ -361,7 +365,6 @@ with col_izq:
 
   # --- REGISTRAR NUEVAS HORAS ---
   st.markdown("### Registrar horas workeadas")
-  hoy_str = hoy.strftime("%d-%m-%Y")
   input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
 
   col_h, col_m = st.columns(2)
@@ -376,13 +379,11 @@ with col_izq:
     horas_nuevas = round(input_horas + (input_minutos / 60), 2)
     fec = limpiar_fecha(input_fecha)
 
-    # Actualizar estado local inmediatamente
     if fec in st.session_state["registros"]:
       st.session_state["registros"][fec] += horas_nuevas
     else:
       st.session_state["registros"][fec] = horas_nuevas
 
-    # Guardar en Google Sheets de fondo
     try:
       columna_fechas_raw = worksheet.col_values(1)
     except Exception:
@@ -407,7 +408,6 @@ with col_izq:
     else:
       worksheet.append_row([fec, horas_nuevas])
 
-    # Recalcular totales con el estado actualizado
     tot_hoy_nuevo, tot_sem_nuevo, tot_mes_nuevo, deuda_nueva, _, _ = (
         calcular_totales(st.session_state["registros"])
     )
@@ -490,7 +490,6 @@ with col_der:
 
             df_para_guardar = df_global_asc[["Fecha", "Horas"]]
 
-            # Actualizar estado local inmediatamente con la edición
             nuevo_diccionario = {}
             for _, r in df_para_guardar.iterrows():
               nuevo_diccionario[limpiar_fecha(r["Fecha"])] = parsear_horas_texto(
