@@ -249,11 +249,10 @@ with col_izq:
 
   with col3:
     st.metric("Este Mes", formatear_horas(tot_mes))
-    dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.month]  # Ajuste
+    dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
     mes_mes_nombre = meses_espanol_lower[inicio_mes_dt.month]
     st.caption(
-        f"Contando desde el {dias_semana_lower[inicio_mes_dt.weekday()]} 1 de"
-        f" {mes_mes_nombre}"
+        f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}"
     )
 
   # Fila adicional para la Deuda de Horas
