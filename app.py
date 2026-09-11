@@ -309,7 +309,6 @@ def actualizar_fila_en_sheet(fecha_fec, nueva_hora):
         encontrado = False
         for i, fila in enumerate(filas[1:], start=2):
             if fila and limpiar_fecha(fila[0]) == fecha_fec:
-                # Se actualiza celda a celda con los argumentos correctos
                 worksheet.update_cell(i, 1, fecha_como_texto)
                 worksheet.update_cell(i, 2, float(nueva_hora))
                 encontrado = True
@@ -323,6 +322,24 @@ def actualizar_fila_en_sheet(fecha_fec, nueva_hora):
         return True
     except Exception as e:
         st.error(f"Error al actualizar la hoja: {e}")
+        return False
+
+
+def guardar_todo_en_sheet(diccionario_registros):
+    """Limpia la hoja y guarda todos los registros de una sola vez para evitar bloqueos de la API"""
+    try:
+        worksheet.clear()
+        datos_para_guardar = [["Fecha", "Horas"]]
+        for fec in sorted(diccionario_registros.keys()):
+            fecha_como_texto = f"'{fec}"
+            datos_para_guardar.append(
+                [fecha_como_texto, float(diccionario_registros[fec])]
+            )
+
+        worksheet.append_rows(datos_para_guardar, value_input_option="USER_ENTERED")
+        return True
+    except Exception as e:
+        st.error(f"Error al sincronizar con Google Sheets: {e}")
         return False
 
 
@@ -444,13 +461,11 @@ with col_izq:
         horas_nuevas = round(input_horas + (input_minutos / 60), 2)
         fec = limpiar_fecha(input_fecha)
 
-        # Actualizamos o sumamos en el diccionario local
         if fec in st.session_state["registros"]:
             st.session_state["registros"][fec] += horas_nuevas
         else:
             st.session_state["registros"][fec] = horas_nuevas
 
-        # Sincronizamos con Google Sheets de forma segura llamando a nuestra función
         actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
 
         (
@@ -548,7 +563,9 @@ with col_der:
                             fec_limpia = limpiar_fecha(r["Fecha"])
                             val_horas = parsear_horas_texto(r["Horas"])
                             nuevo_diccionario[fec_limpia] = val_horas
-                            actualizar_fila_en_sheet(fec_limpia, val_horas)
+
+                        # Sincronizamos de forma masiva y segura de un solo golpe
+                        guardar_todo_en_sheet(nuevo_diccionario)
 
                         st.session_state["registros"] = nuevo_diccionario
 
@@ -561,7 +578,7 @@ with col_der:
     st.markdown("### Horas a recuperar")
     st.metric(
         "Total de horas a recuperar (Objetivo: 23h/sem desde 16 de julio)",
-        format_horas_val := formatear_horas(deuda_horas),
+        formatear_horas(deuda_horas),
     )
     st.caption(
         "Horas totales pendientes de recuperar hasta la fecha actual (acumula el"
