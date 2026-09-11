@@ -362,10 +362,11 @@ def guardar_todo_en_sheet(diccionario_registros):
         return False
 
 
-def generar_pie_chart(actual, objetivo, color_avance="#3b82f6"):
-    """Genera un gráfico de tarta (donut) que muestra lo que falta.
+def generar_pie_chart(actual, objetivo, color_faltante="#3b82f6"):
+    """Genera un gráfico de tarta (donut) donde la parte activa (que va menguando)
 
-    Si se completa o supera el objetivo, devuelve None para no mostrar gráfico.
+    representa lo que FALTA por hacer, y el fondo lo que ya está hecho.
+    Si se completa o supera el objetivo, devuelve None para ocultarlo.
     """
     if actual >= objetivo:
         return None
@@ -376,8 +377,9 @@ def generar_pie_chart(actual, objetivo, color_avance="#3b82f6"):
     fig.patch.set_facecolor("none")
     ax.set_facecolor("none")
 
+    # Invertido: primero lo hecho (fondo apagado) y luego lo que falta (color activo)
     tamaños = [actual, faltante]
-    colores = [color_avance, "#334155"]  # Color avance y gris oscuro restante
+    colores = ["#334155", color_faltante]
 
     wedges, _ = ax.pie(
         tamaños,
@@ -431,13 +433,13 @@ with col_izq:
             progreso_hoy, text=f"Objetivo diario: {int(progreso_hoy * 100)}%"
         )
 
-        fig_hoy = generar_pie_chart(tot_hoy, 4.0, color_avance="#3b82f6")
-        if fig_hoy is not None:
-            st.pyplot(fig_hoy, use_container_width=True)
-
         with st.container(border=True):
             st.metric("Hoy", formatear_horas(tot_hoy))
             st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
+
+        fig_hoy = generar_pie_chart(tot_hoy, 4.0, color_faltante="#3b82f6")
+        if fig_hoy is not None:
+            st.pyplot(fig_hoy, use_container_width=True)
 
     # 2. Tarjeta Semana
     with col2:
@@ -445,10 +447,6 @@ with col_izq:
         st.progress(
             progreso_sem, text=f"Objetivo semanal: {int(progreso_sem * 100)}%"
         )
-
-        fig_sem = generar_pie_chart(tot_sem, 23.0, color_avance="#3b82f6")
-        if fig_sem is not None:
-            st.pyplot(fig_sem, use_container_width=True)
 
         with st.container(border=True):
             st.metric("Semana", formatear_horas(tot_sem))
@@ -472,16 +470,16 @@ with col_izq:
                     )
                     curr += timedelta(days=1)
 
+        fig_sem = generar_pie_chart(tot_sem, 23.0, color_faltante="#3b82f6")
+        if fig_sem is not None:
+            st.pyplot(fig_sem, use_container_width=True)
+
     # 3. Tarjeta Mes
     with col3:
         progreso_mes = min(max(tot_mes / 92.0, 0.0), 1.0)
         st.progress(
             progreso_mes, text=f"Objetivo mensual: {int(progreso_mes * 100)}%"
         )
-
-        fig_mes = generar_pie_chart(tot_mes, 92.0, color_avance="#3b82f6")
-        if fig_mes is not None:
-            st.pyplot(fig_mes, use_container_width=True)
 
         with st.container(border=True):
             st.metric("Mes", formatear_horas(tot_mes))
@@ -517,6 +515,10 @@ with col_izq:
 
                     curr = fin_semana_actual + timedelta(days=1)
                     semana_num += 1
+
+        fig_mes = generar_pie_chart(tot_mes, 92.0, color_faltante="#3b82f6")
+        if fig_mes is not None:
+            st.pyplot(fig_mes, use_container_width=True)
 
     st.markdown("---")
 
