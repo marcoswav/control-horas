@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import gspread
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
@@ -35,9 +36,8 @@ st.markdown(
             word-wrap: break-word !important;
             overflow-wrap: break-word !important;
         }
-        /* Forzar misma altura en los contenedores del resumen actual */
+        /* Forzar altura adaptativa limpia en los contenedores */
         div[data-testid="stVerticalBlock"] > div[data-testid="stContainer"] {
-            height: 195px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
@@ -276,7 +276,7 @@ def calcular_totales(diccionario_registros):
         try:
             fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
             if inicio_deuda <= fecha_dt <= ayer_sin_hora:
-                horas_trabajadas_hasta_ayer += horas  # Cuenta cualquier día (incluyendo fines de semana) para reducir la deuda
+                horas_trabajadas_hasta_ayer += horas
         except ValueError:
             pass
 
@@ -362,6 +362,35 @@ def guardar_todo_en_sheet(diccionario_registros):
         return False
 
 
+def generar_pie_chart(actual, objetivo, color_avance="#3b82f6"):
+    """Genera un gráfico de tarta (donut) que muestra lo que falta.
+
+    Si se completa o supera el objetivo, devuelve None para no mostrar gráfico.
+    """
+    if actual >= objetivo:
+        return None
+
+    faltante = objetivo - actual
+
+    fig, ax = plt.subplots(figsize=(2.2, 2.2))
+    fig.patch.set_facecolor("none")
+    ax.set_facecolor("none")
+
+    tamaños = [actual, faltante]
+    colores = [color_avance, "#334155"]  # Color avance y gris oscuro restante
+
+    wedges, _ = ax.pie(
+        tamaños,
+        colors=colores,
+        startangle=90,
+        wedgeprops=dict(width=0.4, edgecolor="none"),
+    )
+
+    ax.set(aspect="equal")
+    plt.tight_layout()
+    return fig
+
+
 # ------------------ INICIALIZACIÓN DE FECHA Y ESTADO ------------------
 hoy = datetime.now()
 hoy_str = hoy.strftime("%d-%m-%Y")
@@ -401,6 +430,11 @@ with col_izq:
         st.progress(
             progreso_hoy, text=f"Objetivo diario: {int(progreso_hoy * 100)}%"
         )
+
+        fig_hoy = generar_pie_chart(tot_hoy, 4.0, color_avance="#3b82f6")
+        if fig_hoy is not None:
+            st.pyplot(fig_hoy, use_container_width=True)
+
         with st.container(border=True):
             st.metric("Hoy", formatear_horas(tot_hoy))
             st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
@@ -411,6 +445,11 @@ with col_izq:
         st.progress(
             progreso_sem, text=f"Objetivo semanal: {int(progreso_sem * 100)}%"
         )
+
+        fig_sem = generar_pie_chart(tot_sem, 23.0, color_avance="#3b82f6")
+        if fig_sem is not None:
+            st.pyplot(fig_sem, use_container_width=True)
+
         with st.container(border=True):
             st.metric("Semana", formatear_horas(tot_sem))
             dia_sem_nombre = dias_semana_lower[inicio_sem_dt.weekday()]
@@ -439,6 +478,11 @@ with col_izq:
         st.progress(
             progreso_mes, text=f"Objetivo mensual: {int(progreso_mes * 100)}%"
         )
+
+        fig_mes = generar_pie_chart(tot_mes, 92.0, color_avance="#3b82f6")
+        if fig_mes is not None:
+            st.pyplot(fig_mes, use_container_width=True)
+
         with st.container(border=True):
             st.metric("Mes", formatear_horas(tot_mes))
             dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
