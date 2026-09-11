@@ -36,14 +36,16 @@ st.markdown(
             word-wrap: break-word !important;
             overflow-wrap: break-word !important;
         }
-        /* Forzar altura adaptativa limpia en los contenedores */
-        div[data-testid="stVerticalBlock"] > div[data-testid="stContainer"] {
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
+        
+        /* Forzar misma altura exacta en los tres contenedores de las tarjetas */
+        div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] > div > div[data-testid="stVerticalBlock"] > div[data-testid="stContainer"] {
+            height: 175px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
         }
         
-        /* Degradado azul para progreso normal (más rápido: 1.5s) */
+        /* Degradado azul para progreso normal */
         div[data-testid="stProgress"] > div > div > div {
             background-image: linear-gradient(90deg, #3b82f6, #1d4ed8, #60a5fa);
             background-size: 200% 100%;
@@ -263,11 +265,11 @@ def calcular_totales(diccionario_registros):
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
     inicio_deuda = datetime(2026, 7, 16)
 
-    # Cálculo de horas esperadas (solo de Lunes a Viernes) y horas trabajadas (todos los días hasta ayer)
+    # Cálculo de horas esperadas y trabajadas hasta ayer para la deuda y la barra
     horas_esperadas_hasta_ayer = 0.0
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
-        if curr.weekday() < 5:  # Solo de lunes a viernes se genera objetivo/obligación
+        if curr.weekday() < 5:  # Lunes a viernes
             horas_esperadas_hasta_ayer += 23.0 / 5.0
         curr += timedelta(days=1)
 
@@ -309,6 +311,8 @@ def calcular_totales(diccionario_registros):
         round(deuda_julio, 2),
         round(deuda_agosto, 2),
         round(deuda_septiembre, 2),
+        round(horas_esperadas_hasta_ayer, 2),
+        round(horas_trabajadas_hasta_ayer, 2),
     )
 
 
@@ -363,25 +367,19 @@ def guardar_todo_en_sheet(diccionario_registros):
 
 
 def generar_pie_chart(actual, objetivo, color_faltante="#3b82f6"):
-    """Genera un gráfico de tarta (donut) donde la parte activa (que va menguando)
-
-    representa lo que FALTA por hacer, y el fondo lo que ya está hecho.
-    Si se completa o supera el objetivo, devuelve None para ocultarlo.
-    """
-    if actual >= objetivo:
-        return None
-
-    faltante = objetivo - actual
-
     fig, ax = plt.subplots(figsize=(2.2, 2.2))
     fig.patch.set_facecolor("none")
     ax.set_facecolor("none")
 
-    # Invertido: primero lo hecho (fondo apagado) y luego lo que falta (color activo)
-    tamaños = [actual, faltante]
-    colores = ["#334155", color_faltante]
+    if actual >= objetivo:
+        tamaños = [1.0, 0.0]
+        colores = ["#334155", "#334155"]
+    else:
+        faltante = objetivo - actual
+        tamaños = [actual, faltante]
+        colores = ["#334155", color_faltante]
 
-    wedges, _ = ax.pie(
+    ax.pie(
         tamaños,
         colors=colores,
         startangle=90,
@@ -411,6 +409,8 @@ registros_actuales = st.session_state["registros"]
     deuda_julio,
     deuda_agosto,
     deuda_septiembre,
+    horas_totales_obligatorio,
+    horas_totales_trabajadas,
 ) = calcular_totales(registros_actuales)
 
 # ------------------ DISEÑO GENERAL DE LA INTERFAZ ------------------
@@ -419,14 +419,65 @@ col_izq, col_der = st.columns([1.1, 0.9])
 with col_izq:
     st.title("Control horas work")
 
-    # --- RESUMEN ACTUAL ---
+    # --- 1. REGISTRAR NUEVAS HORAS (Compacto y estrecho arriba) ---
+    st.markdown("### Registrar horas workeadas")
+    with st.container(border=True):
+        col_reg1, col_reg2, col_reg3, col_reg4 = st.columns([1.2, 0.9, 0.9, 1.0])
+        with col_reg1:
+            input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
+        with col_reg2:
+            input_horas = st.number_input(
+                "Horas:", min_value=0, value=4, step=1
+            )
+        with col_reg3:
+            input_minutos = st.number_input(
+                "Minutos:", min_value=0, max_value=59, value=0, step=1
+            )
+        with col_reg4:
+            st.write("")  # Alineación visual
+            st.write("")
+            btn_guardar = st.button("Guardar", type="primary", use_container_width=True)
+
+        if btn_guardar:
+            horas_nuevas = round(input_horas + (input_minutos / 60), 2)
+            fec = limpiar_fecha(input_fecha)
+
+            if fec in st.session_state["registros"]:
+                st.session_state["registros"][fec] += horas_nuevas
+            else:
+                st.session_state["registros"][fec] = horas_nuevas
+
+            actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
+
+            (
+                tot_hoy_n,
+                tot_sem_n,
+                tot_mes_n,
+                deuda_n,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+            ) = calcular_totales(st.session_state["registros"])
+
+            st.success(
+                f"Guardado! Hoy: {formatear_horas(tot_hoy_n)} | Sem: {formatear_horas(tot_sem_n)}"
+            )
+            st.rerun()
+
+    st.markdown("---")
+
+    # --- 2. RESUMEN ACTUAL (Debajo del registro) ---
     st.markdown("### rezumen actual")
     col1, col2, col3 = st.columns(3)
 
     dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
     mes_hoy_nombre = meses_espanol_lower[hoy.month]
 
-    # 1. Tarjeta Hoy
+    # Tarjeta Hoy
     with col1:
         progreso_hoy = min(max(tot_hoy / 4.0, 0.0), 1.0)
         st.progress(
@@ -438,10 +489,9 @@ with col_izq:
             st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
         fig_hoy = generar_pie_chart(tot_hoy, 4.0, color_faltante="#3b82f6")
-        if fig_hoy is not None:
-            st.pyplot(fig_hoy, use_container_width=True)
+        st.pyplot(fig_hoy, use_container_width=True)
 
-    # 2. Tarjeta Semana
+    # Tarjeta Semana
     with col2:
         progreso_sem = min(max(tot_sem / 23.0, 0.0), 1.0)
         st.progress(
@@ -471,10 +521,9 @@ with col_izq:
                     curr += timedelta(days=1)
 
         fig_sem = generar_pie_chart(tot_sem, 23.0, color_faltante="#3b82f6")
-        if fig_sem is not None:
-            st.pyplot(fig_sem, use_container_width=True)
+        st.pyplot(fig_sem, use_container_width=True)
 
-    # 3. Tarjeta Mes
+    # Tarjeta Mes
     with col3:
         progreso_mes = min(max(tot_mes / 92.0, 0.0), 1.0)
         st.progress(
@@ -517,57 +566,39 @@ with col_izq:
                     semana_num += 1
 
         fig_mes = generar_pie_chart(tot_mes, 92.0, color_faltante="#3b82f6")
-        if fig_mes is not None:
-            st.pyplot(fig_mes, use_container_width=True)
+        st.pyplot(fig_mes, use_container_width=True)
+
+with col_der:
+    # --- 3. APARTADO DE DEUDA (Arriba de la tabla, con barra animada de progreso) ---
+    st.markdown("### Horas a recuperar")
+
+    if horas_totales_obligatorio > 0:
+        porcentaje_progreso_deuda = min(
+            max(horas_totales_trabajadas / horas_totales_obligatorio, 0.0), 1.0
+        )
+    else:
+        porcentaje_progreso_deuda = 0.0
+
+    st.progress(
+        porcentaje_progreso_deuda,
+        text=f"Progreso global de horas trabajadas: {int(porcentaje_progreso_deuda * 100)}% (Trabajadas: {formatear_horas(horas_totales_trabajadas)} / Obligatorias: {formatear_horas(horas_totales_obligatorio)})",
+    )
+
+    with st.container(border=True):
+        st.metric("Total de horas pendientes de recuperar", formatear_horas(deuda_horas))
+        st.caption(
+            "Cálculo basado en 23h/semana (de Lunes a Viernes) desde el 16 de Julio hasta ayer."
+        )
+
+        with st.popover("detalles de deuda"):
+            st.markdown("**Deuda acumulada por mes (hasta ayer):**")
+            st.write(f"• **Julio (desde 16):** {formatear_horas(deuda_julio)}")
+            st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
+            st.write(f"• **Septiembre:** {formatear_horas(deuda_septiembre)}")
 
     st.markdown("---")
 
-    # --- REGISTRAR NUEVAS HORAS ---
-    st.markdown("### Registrar horas workeadas")
-    input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
-
-    col_h, col_m = st.columns(2)
-    with col_h:
-        input_horas = st.number_input("Horas enteras:", min_value=0, value=4, step=1)
-    with col_m:
-        input_minutos = st.number_input(
-            "Minutos extra:", min_value=0, max_value=59, value=0, step=1
-        )
-
-    if st.button("Guardar en Google Drive", type="primary"):
-        horas_nuevas = round(input_horas + (input_minutos / 60), 2)
-        fec = limpiar_fecha(input_fecha)
-
-        if fec in st.session_state["registros"]:
-            st.session_state["registros"][fec] += horas_nuevas
-        else:
-            st.session_state["registros"][fec] = horas_nuevas
-
-        actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
-
-        (
-            tot_hoy_nuevo,
-            tot_sem_nuevo,
-            tot_mes_nuevo,
-            deuda_nueva,
-            _,
-            _,
-            _,
-            _,
-            _,
-        ) = calcular_totales(st.session_state["registros"])
-
-        st.success(
-            f"guardao!\n\n"
-            f"- **Total Hoy:** {formatear_horas(tot_hoy_nuevo)}\n"
-            f"- **Total Esta Semana:** {formatear_horas(tot_sem_nuevo)}\n"
-            f"- **Total Este Mes:** {formatear_horas(tot_mes_nuevo)}\n"
-            f"- **Deuda Actual:** {formatear_horas(deuda_nueva)}"
-        )
-        st.rerun()
-
-with col_der:
-    # --- TABLA DE HISTORIAL Y EDICIÓN ---
+    # --- 4. TABLA DE HISTORIAL Y EDICIÓN (Debajo de la deuda) ---
     st.subheader("Horas workeadas anteriormente")
 
     if registros_actuales:
@@ -642,28 +673,9 @@ with col_der:
                             nuevo_diccionario[fec_limpia] = val_horas
 
                         guardar_todo_en_sheet(nuevo_diccionario)
-
                         st.session_state["registros"] = nuevo_diccionario
 
-                        st.success("se han guardao los cambios")
+                        st.success("Se han guardado los cambios.")
                         st.rerun()
     else:
         st.info("Aún no hay registros en la base de datos.")
-
-    st.markdown("---")
-    st.markdown("### Horas a recuperar")
-    st.metric(
-        "Total de horas a recuperar (Objetivo: 23h/sem de L a V, un día de retraso)",
-        formatear_horas(deuda_horas),
-    )
-    st.caption(
-        "Horas acumuladas pendientes de recuperar hasta ayer (reparte 23h entre"
-        " los 5 días laborables de la semana, excluyendo fines de semana para la"
-        " obligación pero restando si trabajas en ellos)."
-    )
-
-    with st.popover("detalles"):
-        st.markdown("**Deuda acumulada por mes (hasta ayer):**")
-        st.write(f"• **Julio (desde 16):** {formatear_horas(deuda_julio)}")
-        st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
-        st.write(f"• **Septiembre:** {formatear_horas(deuda_septiembre)}")
