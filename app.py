@@ -10,7 +10,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# ------------------ ESTILOS CSS Y ANIMACIÓN DE DEGRADADO ------------------
+# ------------------ ESTILOS CSS Y ANIMACIÓN DE DEGRADADOS ------------------
 st.markdown(
     """
     <style>
@@ -42,13 +42,21 @@ st.markdown(
             flex-direction: column;
             justify-content: space-between;
         }
-        /* Estilo y animación de degradado de azules para las barras de progreso */
+        
+        /* Degradado azul para progreso normal (más rápido: 1.5s) */
         div[data-testid="stProgress"] > div > div > div {
             background-image: linear-gradient(90deg, #3b82f6, #1d4ed8, #60a5fa);
             background-size: 200% 100%;
-            animation: gradientAnimation 3s ease infinite;
+            animation: gradientAnimation 1.5s ease infinite;
             transition: width 0.6s ease-in-out;
         }
+
+        /* Degradado rosa para cuando el objetivo está completado (100% o más) */
+        div[data-testid="stProgress"] div[aria-valuenow="100"] > div > div,
+        div[data-testid="stProgress"] div[aria-valuenow="100.0"] > div > div {
+            background-image: linear-gradient(90deg, #ec4899, #be185d, #f472b6) !important;
+        }
+
         @keyframes gradientAnimation {
             0% { background-position: 0% 50%; }
             50% { background-position: 100% 50%; }
@@ -232,7 +240,6 @@ def calcular_totales(diccionario_registros):
     total_hoy = diccionario_registros.get(hoy_str_calc, 0.0)
     total_mes = 0.0
     total_semana = 0.0
-    total_historico = sum(diccionario_registros.values())
 
     if hoy_calc.weekday() == 0:
         inicio_semana = hoy_sin_hora
@@ -256,13 +263,11 @@ def calcular_totales(diccionario_registros):
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
     inicio_deuda = datetime(2026, 7, 16)
 
-    dias_laborables_transcurridos = 0
+    # Cálculo de horas esperadas (solo de Lunes a Viernes) y horas trabajadas (todos los días hasta ayer)
     horas_esperadas_hasta_ayer = 0.0
-
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
-        if curr.weekday() < 5:
-            dias_laborables_transcurridos += 1
+        if curr.weekday() < 5:  # Solo de lunes a viernes se genera objetivo/obligación
             horas_esperadas_hasta_ayer += 23.0 / 5.0
         curr += timedelta(days=1)
 
@@ -271,7 +276,7 @@ def calcular_totales(diccionario_registros):
         try:
             fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
             if inicio_deuda <= fecha_dt <= ayer_sin_hora:
-                horas_trabajadas_hasta_ayer += horas
+                horas_trabajadas_hasta_ayer += horas  # Cuenta cualquier día (incluyendo fines de semana) para reducir la deuda
         except ValueError:
             pass
 
@@ -607,7 +612,8 @@ with col_der:
     )
     st.caption(
         "Horas acumuladas pendientes de recuperar hasta ayer (reparte 23h entre"
-        " los 5 días laborables de la semana, excluyendo fines de semana)."
+        " los 5 días laborables de la semana, excluyendo fines de semana para la"
+        " obligación pero restando si trabajas en ellos)."
     )
 
     with st.popover("detalles"):
