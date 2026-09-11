@@ -294,20 +294,28 @@ def calcular_totales(diccionario_registros):
   )
 
 
-def sincronizar_dataframe_a_sheet(df_completo):
+def actualizar_fila_en_sheet(fecha_fec, nueva_hora):
+  """Actualiza una fecha específica de forma segura sin borrar el resto de celdas"""
   try:
-    lote = [["Fecha", "Horas"]]
-    for _, row in df_completo.iterrows():
-      fecha_limpia = formato_humano_a_fecha(row["Fecha"])
-      fecha_limpia = limpiar_fecha(fecha_limpia)
-      horas_decimal = parsear_horas_texto(row["Horas"])
-      lote.append([str(fecha_limpia), float(horas_decimal)])
+    filas = worksheet.get_all_values()
+    if not filas:
+      worksheet.append_row(["Fecha", "Horas"])
+      worksheet.append_row([fecha_fec, float(nueva_hora)])
+      return True
 
-    worksheet.clear()
-    worksheet.update(lote)
+    encontrado = False
+    for i, fila in enumerate(filas[1:], start=2):
+      if fila and limpiar_fecha(fila[0]) == fecha_fec:
+        worksheet.update_cell(i, 2, float(nueva_hora))
+        encontrado = True
+        break
+
+    if not encontrado:
+      worksheet.append_row([fecha_fec, float(nueva_hora)])
+
     return True
   except Exception as e:
-    st.error(f"Error al sincronizar con Google Drive: {e}")
+    st.error(f"Error al actualizar la hoja: {e}")
     return False
 
 
@@ -550,14 +558,16 @@ with col_der:
 
             nuevo_diccionario = {}
             for _, r in df_para_guardar.iterrows():
-              nuevo_diccionario[limpiar_fecha(r["Fecha"])] = parsear_horas_texto(
-                  r["Horas"]
-              )
+              fec_limpia = limpiar_fecha(r["Fecha"])
+              val_horas = parsear_horas_texto(r["Horas"])
+              nuevo_diccionario[fec_limpia] = val_horas
+              # Sincronización segura fila por fila (sin borrar la hoja entera)
+              actualizar_fila_en_sheet(fec_limpia, val_horas)
+
             st.session_state["registros"] = nuevo_diccionario
 
-            if sincronizar_dataframe_a_sheet(df_para_guardar):
-              st.success("se han guardao los cambios")
-              st.rerun()
+            st.success("se han guardao los cambios")
+            st.rerun()
   else:
     st.info("Aún no hay registros en la base de datos.")
 
