@@ -241,49 +241,51 @@ def calcular_totales(diccionario_registros):
         except ValueError:
             pass
 
+    # Objetivo diario de lunes a viernes: 23 / 5 = 4.6 horas
+    # La deuda se calcula hasta AYER (un día tarde) y solo sumando días laborables (lunes a viernes)
+    ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
     inicio_deuda = datetime(2026, 7, 16)
-    dias_transcurridos = (hoy_sin_hora - inicio_deuda).days + 1
-    if dias_transcurridos < 0:
-        dias_transcurridos = 0
 
-    horas_teoricas_esperadas = dias_transcurridos * (23 / 7)
-    deuda = horas_teoricas_esperadas - total_historico
-
-    # Cálculo del desglose por mes de deuda
-    dias_julio = 0
-    horas_julio_trabajadas = 0.0
-    curr = datetime(2026, 7, 16)
-    fin_julio = datetime(2026, 7, 31)
-    while curr <= fin_julio and curr <= hoy_sin_hora:
-        dias_julio += 1
-        horas_julio_trabajadas += diccionario_registros.get(
-            curr.strftime("%d-%m-%Y"), 0.0
-        )
+    dias_laborables_transcurridos = 0
+    horas_esperadas_hasta_ayer = 0.0
+    
+    curr = inicio_deuda
+    while curr <= ayer_sin_hora:
+        # Si es lunes (0) a viernes (4)
+        if curr.weekday() < 5:
+            dias_laborables_transcurridos += 1
+            horas_esperadas_hasta_ayer += 23.0 / 5.0
         curr += timedelta(days=1)
-    deuda_julio = (dias_julio * (23 / 7)) - horas_julio_trabajadas
 
-    dias_agosto = 0
-    horas_agosto_trabajadas = 0.0
-    curr = datetime(2026, 8, 1)
-    fin_agosto = datetime(2026, 8, 31)
-    while curr <= fin_agosto and curr <= hoy_sin_hora:
-        dias_agosto += 1
-        horas_agosto_trabajadas += diccionario_registros.get(
-            curr.strftime("%d-%m-%Y"), 0.0
-        )
-        curr += timedelta(days=1)
-    deuda_agosto = (dias_agosto * (23 / 7)) - horas_agosto_trabajadas
+    # Sumar solo las horas trabajadas hasta ayer inclusive para calcular la deuda acumulada real
+    horas_trabajadas_hasta_ayer = 0.0
+    for fecha_str, horas in diccionario_registros.items():
+        try:
+            fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
+            if inicio_deuda <= fecha_dt <= ayer_sin_hora:
+                horas_trabajadas_hasta_ayer += horas
+        except ValueError:
+            pass
 
-    dias_septiembre = 0
-    horas_septiembre_trabajadas = 0.0
-    curr = datetime(2026, 9, 1)
-    while curr <= hoy_sin_hora:
-        dias_septiembre += 1
-        horas_septiembre_trabajadas += diccionario_registros.get(
-            curr.strftime("%d-%m-%Y"), 0.0
-        )
-        curr += timedelta(days=1)
-    deuda_septiembre = (dias_septiembre * (23 / 7)) - horas_septiembre_trabajadas
+    deuda = horas_esperadas_hasta_ayer - horas_trabajadas_hasta_ayer
+
+    # Desglose por mes de deuda (calculado hasta ayer)
+    def calcular_deuda_mes(inicio_mes_dt, fin_mes_dt):
+        d_lab = 0.0
+        h_trab = 0.0
+        c = inicio_mes_dt
+        limite = min(fin_mes_dt, ayer_sin_hora)
+        while c <= limite:
+            if c >= datetime(2026, 7, 16):
+                if c.weekday() < 5:
+                    d_lab += 23.0 / 5.0
+                h_trab += diccionario_registros.get(c.strftime("%d-%m-%Y"), 0.0)
+            c += timedelta(days=1)
+        return d_lab - h_trab
+
+    deuda_julio = calcular_deuda_mes(datetime(2026, 7, 16), datetime(2026, 7, 31))
+    deuda_agosto = calcular_deuda_mes(datetime(2026, 8, 1), datetime(2026, 8, 31))
+    deuda_septiembre = calcular_deuda_mes(datetime(2026, 9, 1), ayer_sin_hora)
 
     return (
         round(total_hoy, 2),
@@ -595,16 +597,16 @@ with col_der:
     st.markdown("---")
     st.markdown("### Horas a recuperar")
     st.metric(
-        "Total de horas a recuperar (Objetivo: 23h/sem desde 16 de julio)",
+        "Total de horas a recuperar (Objetivo: 23h/sem de L a V, un día de retraso)",
         formatear_horas(deuda_horas),
     )
     st.caption(
-        "Horas totales pendientes de recuperar hasta la fecha actual (acumula el"
-        " objetivo diario proporcional)."
+        "Horas acumuladas pendientes de recuperar hasta ayer (reparte 23h entre"
+        " los 5 días laborables de la semana, excluyendo fines de semana)."
     )
 
     with st.popover("detalles"):
-        st.markdown("**Deuda acumulada por mes:**")
+        st.markdown("**Deuda acumulada por mes (hasta ayer):**")
         st.write(f"• **Julio (desde 16):** {formatear_horas(deuda_julio)}")
         st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
         st.write(f"• **Septiembre:** {formatear_horas(deuda_septiembre)}")
