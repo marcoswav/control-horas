@@ -10,7 +10,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# ------------------ ESTILOS CSS ------------------
+# ------------------ ESTILOS CSS Y ANIMACIÓN DE DEGRADADO ------------------
 st.markdown(
     """
     <style>
@@ -41,6 +41,18 @@ st.markdown(
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+        }
+        /* Estilo y animación de degradado de azules para las barras de progreso */
+        div[data-testid="stProgress"] > div > div > div {
+            background-image: linear-gradient(90deg, #3b82f6, #1d4ed8, #60a5fa);
+            background-size: 200% 100%;
+            animation: gradientAnimation 3s ease infinite;
+            transition: width 0.6s ease-in-out;
+        }
+        @keyframes gradientAnimation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
     </style>
 """,
@@ -241,23 +253,19 @@ def calcular_totales(diccionario_registros):
         except ValueError:
             pass
 
-    # Objetivo diario de lunes a viernes: 23 / 5 = 4.6 horas
-    # La deuda se calcula hasta AYER (un día tarde) y solo sumando días laborables (lunes a viernes)
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
     inicio_deuda = datetime(2026, 7, 16)
 
     dias_laborables_transcurridos = 0
     horas_esperadas_hasta_ayer = 0.0
-    
+
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
-        # Si es lunes (0) a viernes (4)
         if curr.weekday() < 5:
             dias_laborables_transcurridos += 1
             horas_esperadas_hasta_ayer += 23.0 / 5.0
         curr += timedelta(days=1)
 
-    # Sumar solo las horas trabajadas hasta ayer inclusive para calcular la deuda acumulada real
     horas_trabajadas_hasta_ayer = 0.0
     for fecha_str, horas in diccionario_registros.items():
         try:
@@ -269,7 +277,6 @@ def calcular_totales(diccionario_registros):
 
     deuda = horas_esperadas_hasta_ayer - horas_trabajadas_hasta_ayer
 
-    # Desglose por mes de deuda (calculado hasta ayer)
     def calcular_deuda_mes(inicio_mes_dt, fin_mes_dt):
         d_lab = 0.0
         h_trab = 0.0
@@ -301,7 +308,6 @@ def calcular_totales(diccionario_registros):
 
 
 def actualizar_fila_en_sheet(fecha_fec, nueva_hora):
-    """Actualiza una fecha específica de forma segura sin borrar el resto de celdas"""
     try:
         filas = worksheet.get_all_values()
         fecha_como_texto = f"'{fecha_fec}"
@@ -335,7 +341,6 @@ def actualizar_fila_en_sheet(fecha_fec, nueva_hora):
 
 
 def guardar_todo_en_sheet(diccionario_registros):
-    """Limpia la hoja y guarda todos los registros de una sola vez para evitar bloqueos de la API"""
     try:
         worksheet.clear()
         datos_para_guardar = [["Fecha", "Horas"]]
@@ -387,16 +392,20 @@ with col_izq:
 
     # 1. Tarjeta Hoy
     with col1:
-        with st.container(border=True):
-            st.metric("Hoy", formatear_horas(tot_hoy))
-            st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
         progreso_hoy = min(max(tot_hoy / 4.0, 0.0), 1.0)
         st.progress(
             progreso_hoy, text=f"Objetivo diario: {int(progreso_hoy * 100)}%"
         )
+        with st.container(border=True):
+            st.metric("Hoy", formatear_horas(tot_hoy))
+            st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
     # 2. Tarjeta Semana
     with col2:
+        progreso_sem = min(max(tot_sem / 23.0, 0.0), 1.0)
+        st.progress(
+            progreso_sem, text=f"Objetivo semanal: {int(progreso_sem * 100)}%"
+        )
         with st.container(border=True):
             st.metric("Semana", formatear_horas(tot_sem))
             dia_sem_nombre = dias_semana_lower[inicio_sem_dt.weekday()]
@@ -418,13 +427,13 @@ with col_izq:
                         f" {formatear_horas(h_dia)}"
                     )
                     curr += timedelta(days=1)
-        progreso_sem = min(max(tot_sem / 23.0, 0.0), 1.0)
-        st.progress(
-            progreso_sem, text=f"Objetivo semanal: {int(progreso_sem * 100)}%"
-        )
 
     # 3. Tarjeta Mes
     with col3:
+        progreso_mes = min(max(tot_mes / 92.0, 0.0), 1.0)
+        st.progress(
+            progreso_mes, text=f"Objetivo mensual: {int(progreso_mes * 100)}%"
+        )
         with st.container(border=True):
             st.metric("Mes", formatear_horas(tot_mes))
             dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
@@ -459,10 +468,6 @@ with col_izq:
 
                     curr = fin_semana_actual + timedelta(days=1)
                     semana_num += 1
-        progreso_mes = min(max(tot_mes / 92.0, 0.0), 1.0)
-        st.progress(
-            progreso_mes, text=f"Objetivo mensual: {int(progreso_mes * 100)}%"
-        )
 
     st.markdown("---")
 
