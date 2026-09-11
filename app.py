@@ -303,7 +303,7 @@ def calcular_totales(diccionario_registros):
 
     return (
         round(total_hoy, 2),
-        round(total_sem, 2),
+        round(total_semana, 2),
         round(total_mes, 2),
         round(deuda, 2),
         inicio_semana,
@@ -373,7 +373,6 @@ def generar_pie_chart(actual, objetivo, color_faltante="#3b82f6"):
 
     if actual >= objetivo:
         exceso = actual - objetivo
-        # Si se supera, mostramos el objetivo cumplido (base) y el exceso en rosa (#ec4899)
         tamaños = [objetivo, exceso]
         colores = ["#334155", "#ec4899"]
     else:
