@@ -35,6 +35,13 @@ st.markdown(
             word-wrap: break-word !important;
             overflow-wrap: break-word !important;
         }
+        /* Forzar misma altura en los contenedores del resumen actual */
+        div[data-testid="stVerticalBlock"] > div[data-testid="stContainer"] {
+            height: 195px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
     </style>
 """,
     unsafe_allow_html=True,
@@ -381,6 +388,10 @@ with col_izq:
         with st.container(border=True):
             st.metric("Hoy", formatear_horas(tot_hoy))
             st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
+        progreso_hoy = min(max(tot_hoy / 4.0, 0.0), 1.0)
+        st.progress(
+            progreso_hoy, text=f"Objetivo diario: {int(progreso_hoy * 100)}%"
+        )
 
     # 2. Tarjeta Semana
     with col2:
@@ -405,6 +416,10 @@ with col_izq:
                         f" {formatear_horas(h_dia)}"
                     )
                     curr += timedelta(days=1)
+        progreso_sem = min(max(tot_sem / 23.0, 0.0), 1.0)
+        st.progress(
+            progreso_sem, text=f"Objetivo semanal: {int(progreso_sem * 100)}%"
+        )
 
     # 3. Tarjeta Mes
     with col3:
@@ -442,6 +457,10 @@ with col_izq:
 
                     curr = fin_semana_actual + timedelta(days=1)
                     semana_num += 1
+        progreso_mes = min(max(tot_mes / 92.0, 0.0), 1.0)
+        st.progress(
+            progreso_mes, text=f"Objetivo mensual: {int(progreso_mes * 100)}%"
+        )
 
     st.markdown("---")
 
@@ -564,7 +583,6 @@ with col_der:
                             val_horas = parsear_horas_texto(r["Horas"])
                             nuevo_diccionario[fec_limpia] = val_horas
 
-                        # Sincronizamos de forma masiva y segura de un solo golpe
                         guardar_todo_en_sheet(nuevo_diccionario)
 
                         st.session_state["registros"] = nuevo_diccionario
