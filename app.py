@@ -303,7 +303,7 @@ def calcular_totales(diccionario_registros):
 
     return (
         round(total_hoy, 2),
-        round(total_semana, 2),
+        round(total_sem, 2),
         round(total_mes, 2),
         round(deuda, 2),
         inicio_semana,
@@ -372,8 +372,10 @@ def generar_pie_chart(actual, objetivo, color_faltante="#3b82f6"):
     ax.set_facecolor("none")
 
     if actual >= objetivo:
-        tamaños = [1.0, 0.0]
-        colores = ["#334155", "#334155"]
+        exceso = actual - objetivo
+        # Si se supera, mostramos el objetivo cumplido (base) y el exceso en rosa (#ec4899)
+        tamaños = [objetivo, exceso]
+        colores = ["#334155", "#ec4899"]
     else:
         faltante = objetivo - actual
         tamaños = [actual, faltante]
@@ -413,13 +415,15 @@ registros_actuales = st.session_state["registros"]
     horas_totales_trabajadas,
 ) = calcular_totales(registros_actuales)
 
-# ------------------ DISEÑO GENERAL DE LA INTERFAZ ------------------
+# ------------------ TÍTULO PRINCIPAL DE LA WEB ------------------
+st.title("Control horas work")
+st.markdown("---")
+
+# ------------------ DISEÑO GENERAL DE LA INTERFAZ (2 COLUMNAS) ------------------
 col_izq, col_der = st.columns([1.1, 0.9])
 
 with col_izq:
-    st.title("Control horas work")
-
-    # --- 1. REGISTRAR NUEVAS HORAS (Compacto y estrecho arriba) ---
+    # --- 1. REGISTRAR NUEVAS HORAS ---
     st.markdown("### Registrar horas workeadas")
     with st.container(border=True):
         col_reg1, col_reg2, col_reg3, col_reg4 = st.columns([1.2, 0.9, 0.9, 1.0])
@@ -470,7 +474,7 @@ with col_izq:
 
     st.markdown("---")
 
-    # --- 2. RESUMEN ACTUAL (Debajo del registro) ---
+    # --- 2. RESUMEN ACTUAL ---
     st.markdown("### rezumen actual")
     col1, col2, col3 = st.columns(3)
 
@@ -569,7 +573,7 @@ with col_izq:
         st.pyplot(fig_mes, use_container_width=True)
 
 with col_der:
-    # --- 3. APARTADO DE DEUDA (Arriba de la tabla, con barra animada de progreso) ---
+    # --- 3. APARTADO DE DEUDA (Alineado en altura con el título de la izquierda) ---
     st.markdown("### Horas a recuperar")
 
     if horas_totales_obligatorio > 0:
@@ -598,7 +602,7 @@ with col_der:
 
     st.markdown("---")
 
-    # --- 4. TABLA DE HISTORIAL Y EDICIÓN (Debajo de la deuda) ---
+    # --- 4. TABLA DE HISTORIAL Y EDICIÓN ---
     st.subheader("Horas workeadas anteriormente")
 
     if registros_actuales:
