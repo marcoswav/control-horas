@@ -265,7 +265,7 @@ def calcular_totales(diccionario_registros):
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
     inicio_deuda = datetime(2026, 7, 16)
 
-    # Cálculo de horas esperadas y trabajadas hasta ayer para la deuda y la barra
+    # Cálculo de horas esperadas y trabajadas hasta ayer para la deuda y la barra (solo L-V)
     horas_esperadas_hasta_ayer = 0.0
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
@@ -480,18 +480,33 @@ with col_izq:
     dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
     mes_hoy_nombre = meses_espanol_lower[hoy.month]
 
-    # Tarjeta Hoy
+    # Tarjeta Hoy (Si es fin de semana, el objetivo diario se considera completado por defecto)
     with col1:
-        progreso_hoy = min(max(tot_hoy / 4.0, 0.0), 1.0)
-        st.progress(
-            progreso_hoy, text=f"Objetivo diario: {int(progreso_hoy * 100)}%"
-        )
+        es_fin_de_semana = hoy.weekday() >= 5  # 5 es Sábado, 6 es Domingo
+        
+        if es_fin_de_semana:
+            # Si es fin de semana, la base equivalente del objetivo diario se considera 4h (o lo que se trabaje suma como extra)
+            # Para que marque >= 100% por defecto, simulamos que el objetivo base se cumple con 0 horas o fijamos un mínimo de 4.0
+            base_comparativa_hoy = 4.0
+            horas_efectivas_hoy = max(tot_hoy, 4.0) if tot_hoy > 0 else 4.0
+            progreso_hoy = min(max(horas_efectivas_hoy / base_comparativa_hoy, 0.0), 1.0)
+            # Si trabaja más de 4h en finde, generará exceso rosa. Si trabaja menos o 0, se queda al 100% fijo.
+            if tot_hoy > 4.0:
+                progreso_hoy = 1.0
+            texto_progreso = f"Fin de semana (Completado): {int(max(tot_hoy / 4.0, 1.0) * 100)}%"
+        else:
+            progreso_hoy = min(max(tot_hoy / 4.0, 0.0), 1.0)
+            texto_progreso = f"Objetivo diario: {int(progreso_hoy * 100)}%"
+
+        st.progress(progreso_hoy, text=texto_progreso)
 
         with st.container(border=True):
             st.metric("Hoy", formatear_horas(tot_hoy))
             st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
-        fig_hoy = generar_pie_chart(tot_hoy, 4.0, color_faltante="#3b82f6")
+        # Para el gráfico circular del fin de semana: si hay horas, muestra lo trabajado y el extra; si hay 0, se rellena entero indicando completado
+        valor_pie_hoy = max(tot_hoy, 4.0) if es_fin_de_semana else tot_hoy
+        fig_hoy = generar_pie_chart(valor_pie_hoy, 4.0, color_faltante="#3b82f6")
         st.pyplot(fig_hoy, use_container_width=True)
 
     # Tarjeta Semana
@@ -572,7 +587,7 @@ with col_izq:
         st.pyplot(fig_mes, use_container_width=True)
 
 with col_der:
-    # --- 3. APARTADO DE DEUDA (Alineado en altura con el título de la izquierda) ---
+    # --- 3. APARTADO DE DEUDA ---
     st.markdown("### Horas a recuperar")
 
     if horas_totales_obligatorio > 0:
