@@ -263,7 +263,6 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
         except ValueError:
             pass
 
-    # Sumar el cronómetro activo también a la semana y al mes si estamos en el día actual
     total_semana += horas_cronometro_extra
     total_mes += horas_cronometro_extra
 
@@ -409,8 +408,6 @@ if "cronometro_segundos" not in st.session_state:
 registros_actuales = st.session_state["registros"]
 
 # ------------------ COMPONENTE CRONÓMETRO INTERACTIVO EN VIVO ------------------
-# Este bloque HTML inyecta un cronómetro en JS que actualiza en tiempo real las estadísticas visuales
-# sin bloquear la aplicación y permite comunicar los segundos transcurridos a Streamlit.
 cronometro_html = f"""
 <!DOCTYPE html>
 <html>
@@ -489,8 +486,7 @@ cronometro_html = f"""
                 timer = setInterval(() => {{
                     segundos++;
                     updateDisplay();
-                    // Enviar los segundos actualizados silenciosamente a Streamlit
-                    window.parent.postMessage({type: 'streamlit:setComponentValue', value: segundos}, '*');
+                    window.parent.postMessage({{type: 'streamlit:setComponentValue', value: segundos}}, '*');
                 }}, 1000);
             }} else {{
                 running = false;
@@ -507,14 +503,13 @@ cronometro_html = f"""
             document.getElementById("startBtn").classList.remove("stop");
             segundos = 0;
             updateDisplay();
-            window.parent.postMessage({type: 'streamlit:setComponentValue', value: segundos}, '*');
+            window.parent.postMessage({{type: 'streamlit:setComponentValue', value: segundos}}, '*');
         }}
     </script>
 </body>
 </html>
 """
 
-# Obtener los segundos actuales devueltos por el componente interactivo
 segundos_cronometro = components.html(cronometro_html, height=185)
 if segundos_cronometro is not None:
     st.session_state["cronometro_segundos"] = int(segundos_cronometro)
@@ -523,7 +518,6 @@ else:
 
 horas_cronometro_decimales = segundos_cronometro / 3600.0
 
-# Calcular totales incluyendo el cronómetro en tiempo real
 (
     tot_hoy,
     tot_sem,
@@ -571,7 +565,7 @@ with col_izq:
                     st.session_state["registros"][fec] = horas_a_sumar
 
                 actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
-                st.session_state["cronometro_segundos"] = 0  # Resetear cronómetro
+                st.session_state["cronometro_segundos"] = 0
 
                 st.success(
                     f"¡Registradas {formatear_horas(horas_a_sumar)} al día de hoy con éxito!"
