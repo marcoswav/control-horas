@@ -3,7 +3,6 @@ import gspread
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 # Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
@@ -402,121 +401,24 @@ hoy_str = hoy.strftime("%d-%m-%Y")
 if "registros" not in st.session_state:
     st.session_state["registros"] = obtener_datos_hoja()
 
-if "cronometro_segundos" not in st.session_state:
-    st.session_state["cronometro_segundos"] = 0
+if "cronometro_activo" not in st.session_state:
+    st.session_state["cronometro_activo"] = False
+
+if "tiempo_inicio" not in st.session_state:
+    st.session_state["tiempo_inicio"] = None
+
+if "segundos_acumulados" not in st.session_state:
+    st.session_state["segundos_acumulados"] = 0
 
 registros_actuales = st.session_state["registros"]
 
-# ------------------ COMPONENTE CRONÓMETRO INTERACTIVO EN VIVO ------------------
-cronometro_html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        .cron-card {{
-            background-color: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            color: white;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }}
-        .cron-time {{
-            font-size: 2.8rem;
-            font-weight: 700;
-            margin: 10px 0 20px 0;
-            letter-spacing: 2px;
-            color: #60a5fa;
-            text-shadow: 0 0 10px rgba(96, 165, 250, 0.3);
-        }}
-        .cron-btn {{
-            background-color: #3b82f6;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            margin: 0 5px;
-            font-size: 1rem;
-            font-weight: 600;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }}
-        .cron-btn:hover {{ background-color: #2563eb; transform: translateY(-1px); }}
-        .cron-btn.stop {{ background-color: #ef4444; }}
-        .cron-btn.stop:hover {{ background-color: #dc2626; }}
-        .cron-btn.reset {{ background-color: #64748b; }}
-        .cron-btn.reset:hover {{ background-color: #475569; }}
-    </style>
-</head>
-<body>
-    <div class="cron-card">
-        <div style="font-size: 1.1rem; font-weight: 600; color: #94a3b8;">⏱️ Cronómetro de Trabajo en Vivo</div>
-        <div id="display" class="cron-time">00:00:00</div>
-        <div>
-            <button id="startBtn" class="cron-btn" onclick="toggleCron()">Iniciar</button>
-            <button class="cron-btn reset" onclick="resetCron()">Resetear</button>
-        </div>
-    </div>
+# Calcular segundos actuales del cronómetro
+segundos_totales_crono = st.session_state["segundos_acumulados"]
+if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
+    diferencia = datetime.now() - st.session_state["tiempo_inicio"]
+    segundos_totales_crono += int(diferencia.total_seconds())
 
-    <script>
-        let segundos = {st.session_state["cronometro_segundos"]};
-        let timer = null;
-        let running = false;
-
-        function updateDisplay() {{
-            let h = Math.floor(segundos / 3600);
-            let m = Math.floor((segundos % 3600) / 60);
-            let s = segundos % 60;
-            document.getElementById("display").innerText = 
-                (h < 10 ? "0" + h : h) + ":" + 
-                (m < 10 ? "0" + m : m) + ":" + 
-                (s < 10 ? "0" + s : s);
-        }}
-
-        updateDisplay();
-
-        function toggleCron() {{
-            const btn = document.getElementById("startBtn");
-            if (!running) {{
-                running = true;
-                btn.innerText = "Pausar";
-                btn.classList.add("stop");
-                timer = setInterval(() => {{
-                    segundos++;
-                    updateDisplay();
-                    window.parent.postMessage({{type: 'streamlit:setComponentValue', value: segundos}}, '*');
-                }}, 1000);
-            }} else {{
-                running = false;
-                btn.innerText = "Iniciar";
-                btn.classList.remove("stop");
-                clearInterval(timer);
-            }}
-        }}
-
-        function resetCron() {{
-            running = false;
-            clearInterval(timer);
-            document.getElementById("startBtn").innerText = "Iniciar";
-            document.getElementById("startBtn").classList.remove("stop");
-            segundos = 0;
-            updateDisplay();
-            window.parent.postMessage({{type: 'streamlit:setComponentValue', value: segundos}}, '*');
-        }}
-    </script>
-</body>
-</html>
-"""
-
-segundos_cronometro = components.html(cronometro_html, height=185)
-if segundos_cronometro is not None:
-    st.session_state["cronometro_segundos"] = int(segundos_cronometro)
-else:
-    segundos_cronometro = st.session_state["cronometro_segundos"]
-
-horas_cronometro_decimales = segundos_cronometro / 3600.0
+horas_cronometro_decimales = segundos_totales_crono / 3600.0
 
 (
     tot_hoy,
@@ -540,19 +442,32 @@ st.markdown("---")
 col_izq, col_der = st.columns([1.1, 0.9])
 
 with col_izq:
-    # --- 1. REGISTRAR NUEVAS HORAS / CRONÓMETRO ---
-    st.markdown("### Registrar horas workeadas")
+    # --- 1. CRONÓMETRO Y REGISTRO ---
+    st.markdown("### Cronómetro y Registro de Horas")
     with st.container(border=True):
-        col_reg_c1, col_reg_c2 = st.columns([1.2, 0.8])
-        with col_reg_c1:
-            st.info(
-                f"🕒 **Tiempo en cronómetro:** {formatear_horas(horas_cronometro_decimales)}"
-            )
-        with col_reg_c2:
-            st.write("")
-            btn_registrar_cron = st.button(
-                "Registrar Cronómetro", type="primary", use_container_width=True
-            )
+        st.markdown(f"### ⏱️ {formatear_horas(horas_cronometro_decimales)}")
+        
+        c_btn1, c_btn2, c_btn3 = st.columns(3)
+        with c_btn1:
+            if not st.session_state["cronometro_activo"]:
+                if st.button("▶️ Iniciar", use_container_width=True, type="primary"):
+                    st.session_state["cronometro_activo"] = True
+                    st.session_state["tiempo_inicio"] = datetime.now()
+                    st.rerun()
+            else:
+                if st.button("⏸️ Pausar", use_container_width=True):
+                    st.session_state["segundos_acumulados"] = segundos_totales_crono
+                    st.session_state["cronometro_activo"] = False
+                    st.session_state["tiempo_inicio"] = None
+                    st.rerun()
+        with c_btn2:
+            if st.button("🔄 Resetear", use_container_width=True):
+                st.session_state["cronometro_activo"] = False
+                st.session_state["tiempo_inicio"] = None
+                st.session_state["segundos_acumulados"] = 0
+                st.rerun()
+        with c_btn3:
+            btn_registrar_cron = st.button("📥 Registrar", use_container_width=True, type="secondary")
 
         if btn_registrar_cron:
             if horas_cronometro_decimales > 0:
@@ -565,16 +480,19 @@ with col_izq:
                     st.session_state["registros"][fec] = horas_a_sumar
 
                 actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
-                st.session_state["cronometro_segundos"] = 0
+                
+                # Resetear cronómetro tras registrar
+                st.session_state["cronometro_activo"] = False
+                st.session_state["tiempo_inicio"] = None
+                st.session_state["segundos_acumulados"] = 0
 
-                st.success(
-                    f"¡Registradas {formatear_horas(horas_a_sumar)} al día de hoy con éxito!"
-                )
+                st.success(f"¡Registradas {formatear_horas(horas_a_sumar)} al día de hoy con éxito!")
                 st.rerun()
             else:
                 st.warning("El cronómetro está a 0; no hay tiempo que registrar.")
 
         st.markdown("---")
+        st.write("**O ingresar horas manualmente:**")
         col_reg1, col_reg2, col_reg3, col_reg4 = st.columns([1.2, 0.9, 0.9, 1.0])
         with col_reg1:
             input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
