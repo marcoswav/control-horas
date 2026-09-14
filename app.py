@@ -423,7 +423,7 @@ if "segundos_acumulados" not in st.session_state:
 
 registros_actuales = st.session_state["registros"]
 
-# Calcular segundos actuales del cronómetro
+# Calcular segundos actuales del cronómetro (solo para el visor del cronómetro)
 segundos_totales_crono = st.session_state["segundos_acumulados"]
 if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
     diferencia = datetime.now() - st.session_state["tiempo_inicio"]
@@ -431,6 +431,7 @@ if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
 
 horas_cronometro_decimales = segundos_totales_crono / 3600.0
 
+# NOTA: Pasamos 0.0 a calcular_totales para que las tarjetas de objetivos NO sumen el cronómetro en vivo
 (
     tot_hoy,
     tot_sem,
@@ -443,7 +444,7 @@ horas_cronometro_decimales = segundos_totales_crono / 3600.0
     deuda_septiembre,
     horas_totales_obligatorio,
     horas_totales_trabajadas,
-) = calcular_totales(registros_actuales, horas_cronometro_decimales)
+) = calcular_totales(registros_actuales, 0.0)
 
 # ------------------ TÍTULO PRINCIPAL DE LA WEB ------------------
 st.title("Control horas work")
@@ -457,7 +458,7 @@ with col_izq:
     st.markdown("### Cronómetro y Registro de Horas")
     with st.container(border=True):
         
-        # Contenedor dinámico exclusivo para el texto del cronómetro en tiempo real
+        # Visor del cronómetro en tiempo real
         placeholder_crono = st.empty()
         placeholder_crono.markdown(f"### ⏱️ {formatear_cronometro_detallado(segundos_totales_crono)}")
         
@@ -593,8 +594,6 @@ with col_izq:
                 while curr <= hoy:
                     f_str = curr.strftime("%d-%m-%Y")
                     h_dia = registros_actuales.get(f_str, 0.0)
-                    if curr.date() == hoy.date():
-                        h_dia += horas_cronometro_decimales
                     d_nombre = dias_semana_lower[curr.weekday()].replace(" - ", "")
                     st.write(
                         f"• **{d_nombre.capitalize()} {curr.day}:**"
@@ -636,8 +635,6 @@ with col_izq:
                         h_val = registros_actuales.get(
                             temp.strftime("%d-%m-%Y"), 0.0
                         )
-                        if temp.date() == hoy.date():
-                            h_val += horas_cronometro_decimales
                         horas_semana_bloque += h_val
                         temp += timedelta(days=1)
 
