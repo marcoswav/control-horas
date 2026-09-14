@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import time
 import gspread
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -455,8 +456,10 @@ with col_izq:
     # --- 1. CRONÓMETRO Y REGISTRO ---
     st.markdown("### Cronómetro y Registro de Horas")
     with st.container(border=True):
-        # Mostrar el cronómetro detallado con segundos
-        st.markdown(f"### ⏱️ {formatear_cronometro_detallado(segundos_totales_crono)}")
+        
+        # Contenedor dinámico exclusivo para el texto del cronómetro en tiempo real
+        placeholder_crono = st.empty()
+        placeholder_crono.markdown(f"### ⏱️ {formatear_cronometro_detallado(segundos_totales_crono)}")
         
         c_btn1, c_btn2, c_btn3 = st.columns(3)
         with c_btn1:
@@ -761,3 +764,8 @@ with col_der:
                         st.rerun()
     else:
         st.info("Aún no hay registros en la base de datos.")
+
+# ------------------ BUCLE DE ACTUALIZACIÓN EN TIEMPO REAL ------------------
+if st.session_state["cronometro_activo"]:
+    time.sleep(1)
+    st.rerun()
