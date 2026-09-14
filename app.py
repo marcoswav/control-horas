@@ -423,7 +423,7 @@ if "segundos_acumulados" not in st.session_state:
 
 registros_actuales = st.session_state["registros"]
 
-# Calcular segundos actuales del cronómetro (solo para el visor del cronómetro)
+# Calcular segundos actuales del cronómetro en tiempo real
 segundos_totales_crono = st.session_state["segundos_acumulados"]
 if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
     diferencia = datetime.now() - st.session_state["tiempo_inicio"]
@@ -431,7 +431,7 @@ if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
 
 horas_cronometro_decimales = segundos_totales_crono / 3600.0
 
-# NOTA: Pasamos 0.0 a calcular_totales para que las tarjetas de objetivos NO sumen el cronómetro en vivo
+# Las tarjetas de objetivos NO se actualizan hasta dar a Registrar (pasamos 0.0)
 (
     tot_hoy,
     tot_sem,
@@ -465,11 +465,13 @@ with col_izq:
         c_btn1, c_btn2, c_btn3 = st.columns(3)
         with c_btn1:
             if not st.session_state["cronometro_activo"]:
-                if st.button("▶️ Iniciar", use_container_width=True, type="primary"):
+                # Si está pausado/detenido, el botón sirve para Iniciar o Reanudar desde el tiempo acumulado
+                if st.button("▶️ Iniciar / Reanudar", use_container_width=True, type="primary"):
                     st.session_state["cronometro_activo"] = True
                     st.session_state["tiempo_inicio"] = datetime.now()
                     st.rerun()
             else:
+                # Si está activo, el botón sirve para Pausar guardando el acumulado exacto
                 if st.button("⏸️ Pausar", use_container_width=True):
                     st.session_state["segundos_acumulados"] = segundos_totales_crono
                     st.session_state["cronometro_activo"] = False
@@ -496,7 +498,7 @@ with col_izq:
 
                 actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
                 
-                # Resetear cronómetro tras registrar
+                # Resetear cronómetro tras registrar con éxito
                 st.session_state["cronometro_activo"] = False
                 st.session_state["tiempo_inicio"] = None
                 st.session_state["segundos_acumulados"] = 0
