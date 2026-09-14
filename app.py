@@ -3,6 +3,7 @@ import gspread
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
@@ -232,14 +233,14 @@ def parsear_horas_texto(valor):
         return 0.0
 
 
-def calcular_totales(diccionario_registros):
+def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
     hoy_calc = datetime.now()
     hoy_sin_hora = hoy_calc.replace(
         hour=0, minute=0, second=0, microsecond=0
     )
     hoy_str_calc = hoy_calc.strftime("%d-%m-%Y")
 
-    total_hoy = diccionario_registros.get(hoy_str_calc, 0.0)
+    total_hoy = diccionario_registros.get(hoy_str_calc, 0.0) + horas_cronometro_extra
     total_mes = 0.0
     total_semana = 0.0
 
@@ -262,14 +263,17 @@ def calcular_totales(diccionario_registros):
         except ValueError:
             pass
 
+    # Sumar el cronómetro activo también a la semana y al mes si estamos en el día actual
+    total_semana += horas_cronometro_extra
+    total_mes += horas_cronometro_extra
+
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
     inicio_deuda = datetime(2026, 7, 16)
 
-    # Cálculo de horas esperadas y trabajadas hasta ayer para la deuda y la barra (solo L-V)
     horas_esperadas_hasta_ayer = 0.0
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
-        if curr.weekday() < 5:  # Lunes a viernes
+        if curr.weekday() < 5:
             horas_esperadas_hasta_ayer += 23.0 / 5.0
         curr += timedelta(days=1)
 
@@ -392,14 +396,134 @@ def generar_pie_chart(actual, objetivo, color_faltante="#3b82f6"):
     return fig
 
 
-# ------------------ INICIALIZACIÓN DE FECHA Y ESTADO ------------------
+# ------------------ INICIALIZACIÓN DE ESTADOS ------------------
 hoy = datetime.now()
 hoy_str = hoy.strftime("%d-%m-%Y")
 
 if "registros" not in st.session_state:
     st.session_state["registros"] = obtener_datos_hoja()
 
+if "cronometro_segundos" not in st.session_state:
+    st.session_state["cronometro_segundos"] = 0
+
 registros_actuales = st.session_state["registros"]
+
+# ------------------ COMPONENTE CRONÓMETRO INTERACTIVO EN VIVO ------------------
+# Este bloque HTML inyecta un cronómetro en JS que actualiza en tiempo real las estadísticas visuales
+# sin bloquear la aplicación y permite comunicar los segundos transcurridos a Streamlit.
+cronometro_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        .cron-card {{
+            background-color: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            color: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }}
+        .cron-time {{
+            font-size: 2.8rem;
+            font-weight: 700;
+            margin: 10px 0 20px 0;
+            letter-spacing: 2px;
+            color: #60a5fa;
+            text-shadow: 0 0 10px rgba(96, 165, 250, 0.3);
+        }}
+        .cron-btn {{
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 0 5px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }}
+        .cron-btn:hover {{ background-color: #2563eb; transform: translateY(-1px); }}
+        .cron-btn.stop {{ background-color: #ef4444; }}
+        .cron-btn.stop:hover {{ background-color: #dc2626; }}
+        .cron-btn.reset {{ background-color: #64748b; }}
+        .cron-btn.reset:hover {{ background-color: #475569; }}
+    </style>
+</head>
+<body>
+    <div class="cron-card">
+        <div style="font-size: 1.1rem; font-weight: 600; color: #94a3b8;">⏱️ Cronómetro de Trabajo en Vivo</div>
+        <div id="display" class="cron-time">00:00:00</div>
+        <div>
+            <button id="startBtn" class="cron-btn" onclick="toggleCron()">Iniciar</button>
+            <button class="cron-btn reset" onclick="resetCron()">Resetear</button>
+        </div>
+    </div>
+
+    <script>
+        let segundos = {st.session_state["cronometro_segundos"]};
+        let timer = null;
+        let running = false;
+
+        function updateDisplay() {{
+            let h = Math.floor(segundos / 3600);
+            let m = Math.floor((segundos % 3600) / 60);
+            let s = segundos % 60;
+            document.getElementById("display").innerText = 
+                (h < 10 ? "0" + h : h) + ":" + 
+                (m < 10 ? "0" + m : m) + ":" + 
+                (s < 10 ? "0" + s : s);
+        }}
+
+        updateDisplay();
+
+        function toggleCron() {{
+            const btn = document.getElementById("startBtn");
+            if (!running) {{
+                running = true;
+                btn.innerText = "Pausar";
+                btn.classList.add("stop");
+                timer = setInterval(() => {{
+                    segundos++;
+                    updateDisplay();
+                    // Enviar los segundos actualizados silenciosamente a Streamlit
+                    window.parent.postMessage({type: 'streamlit:setComponentValue', value: segundos}, '*');
+                }}, 1000);
+            }} else {{
+                running = false;
+                btn.innerText = "Iniciar";
+                btn.classList.remove("stop");
+                clearInterval(timer);
+            }}
+        }}
+
+        function resetCron() {{
+            running = false;
+            clearInterval(timer);
+            document.getElementById("startBtn").innerText = "Iniciar";
+            document.getElementById("startBtn").classList.remove("stop");
+            segundos = 0;
+            updateDisplay();
+            window.parent.postMessage({type: 'streamlit:setComponentValue', value: segundos}, '*');
+        }}
+    </script>
+</body>
+</html>
+"""
+
+# Obtener los segundos actuales devueltos por el componente interactivo
+segundos_cronometro = components.html(cronometro_html, height=185)
+if segundos_cronometro is not None:
+    st.session_state["cronometro_segundos"] = int(segundos_cronometro)
+else:
+    segundos_cronometro = st.session_state["cronometro_segundos"]
+
+horas_cronometro_decimales = segundos_cronometro / 3600.0
+
+# Calcular totales incluyendo el cronómetro en tiempo real
 (
     tot_hoy,
     tot_sem,
@@ -412,7 +536,7 @@ registros_actuales = st.session_state["registros"]
     deuda_septiembre,
     horas_totales_obligatorio,
     horas_totales_trabajadas,
-) = calcular_totales(registros_actuales)
+) = calcular_totales(registros_actuales, horas_cronometro_decimales)
 
 # ------------------ TÍTULO PRINCIPAL DE LA WEB ------------------
 st.title("Control horas work")
@@ -422,54 +546,70 @@ st.markdown("---")
 col_izq, col_der = st.columns([1.1, 0.9])
 
 with col_izq:
-    # --- 1. REGISTRAR NUEVAS HORAS ---
+    # --- 1. REGISTRAR NUEVAS HORAS / CRONÓMETRO ---
     st.markdown("### Registrar horas workeadas")
     with st.container(border=True):
+        col_reg_c1, col_reg_c2 = st.columns([1.2, 0.8])
+        with col_reg_c1:
+            st.info(
+                f"🕒 **Tiempo en cronómetro:** {formatear_horas(horas_cronometro_decimales)}"
+            )
+        with col_reg_c2:
+            st.write("")
+            btn_registrar_cron = st.button(
+                "Registrar Cronómetro", type="primary", use_container_width=True
+            )
+
+        if btn_registrar_cron:
+            if horas_cronometro_decimales > 0:
+                fec = hoy_str
+                horas_a_sumar = round(horas_cronometro_decimales, 2)
+
+                if fec in st.session_state["registros"]:
+                    st.session_state["registros"][fec] += horas_a_sumar
+                else:
+                    st.session_state["registros"][fec] = horas_a_sumar
+
+                actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
+                st.session_state["cronometro_segundos"] = 0  # Resetear cronómetro
+
+                st.success(
+                    f"¡Registradas {formatear_horas(horas_a_sumar)} al día de hoy con éxito!"
+                )
+                st.rerun()
+            else:
+                st.warning("El cronómetro está a 0; no hay tiempo que registrar.")
+
+        st.markdown("---")
         col_reg1, col_reg2, col_reg3, col_reg4 = st.columns([1.2, 0.9, 0.9, 1.0])
         with col_reg1:
             input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
         with col_reg2:
-            input_horas = st.number_input(
-                "Horas:", min_value=0, value=4, step=1
-            )
+            input_horas = st.number_input("Horas:", min_value=0, value=0, step=1)
         with col_reg3:
             input_minutos = st.number_input(
                 "Minutos:", min_value=0, max_value=59, value=0, step=1
             )
         with col_reg4:
-            st.write("")  # Alineación visual
             st.write("")
-            btn_guardar = st.button("Guardar", type="primary", use_container_width=True)
+            st.write("")
+            btn_guardar = st.button("Guardar Manual", use_container_width=True)
 
         if btn_guardar:
             horas_nuevas = round(input_horas + (input_minutos / 60), 2)
             fec = limpiar_fecha(input_fecha)
 
-            if fec in st.session_state["registros"]:
-                st.session_state["registros"][fec] += horas_nuevas
+            if horas_nuevas > 0:
+                if fec in st.session_state["registros"]:
+                    st.session_state["registros"][fec] += horas_nuevas
+                else:
+                    st.session_state["registros"][fec] = horas_nuevas
+
+                actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
+                st.success("¡Horas manuales guardadas correctamente!")
+                st.rerun()
             else:
-                st.session_state["registros"][fec] = horas_nuevas
-
-            actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
-
-            (
-                tot_hoy_n,
-                tot_sem_n,
-                tot_mes_n,
-                deuda_n,
-                _,
-                _,
-                _,
-                _,
-                _,
-                _,
-                _,
-            ) = calcular_totales(st.session_state["registros"])
-
-            st.success(
-                f"Guardado! Hoy: {formatear_horas(tot_hoy_n)} | Sem: {formatear_horas(tot_sem_n)}"
-            )
-            st.rerun()
+                st.warning("Introduce una cantidad de horas válida.")
 
     st.markdown("---")
 
@@ -480,20 +620,17 @@ with col_izq:
     dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
     mes_hoy_nombre = meses_espanol_lower[hoy.month]
 
-    # Tarjeta Hoy (Si es fin de semana, el objetivo diario se considera completado por defecto)
+    # Tarjeta Hoy
     with col1:
-        es_fin_de_semana = hoy.weekday() >= 5  # 5 es Sábado, 6 es Domingo
+        es_fin_de_semana = hoy.weekday() >= 5
         
         if es_fin_de_semana:
-            # Si es fin de semana, la base equivalente del objetivo diario se considera 4h (o lo que se trabaje suma como extra)
-            # Para que marque >= 100% por defecto, simulamos que el objetivo base se cumple con 0 horas o fijamos un mínimo de 4.0
             base_comparativa_hoy = 4.0
             horas_efectivas_hoy = max(tot_hoy, 4.0) if tot_hoy > 0 else 4.0
             progreso_hoy = min(max(horas_efectivas_hoy / base_comparativa_hoy, 0.0), 1.0)
-            # Si trabaja más de 4h en finde, generará exceso rosa. Si trabaja menos o 0, se queda al 100% fijo.
             if tot_hoy > 4.0:
                 progreso_hoy = 1.0
-            texto_progreso = f"Fin de semana (Completado): {int(max(tot_hoy / 4.0, 1.0) * 100)}%"
+            texto_progreso = f"Fin de semana: {int(max(tot_hoy / 4.0, 1.0) * 100)}%"
         else:
             progreso_hoy = min(max(tot_hoy / 4.0, 0.0), 1.0)
             texto_progreso = f"Objetivo diario: {int(progreso_hoy * 100)}%"
@@ -504,7 +641,6 @@ with col_izq:
             st.metric("Hoy", formatear_horas(tot_hoy))
             st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
-        # Para el gráfico circular del fin de semana: si hay horas, muestra lo trabajado y el extra; si hay 0, se rellena entero indicando completado
         valor_pie_hoy = max(tot_hoy, 4.0) if es_fin_de_semana else tot_hoy
         fig_hoy = generar_pie_chart(valor_pie_hoy, 4.0, color_faltante="#3b82f6")
         st.pyplot(fig_hoy, use_container_width=True)
@@ -531,6 +667,8 @@ with col_izq:
                 while curr <= hoy:
                     f_str = curr.strftime("%d-%m-%Y")
                     h_dia = registros_actuales.get(f_str, 0.0)
+                    if curr.date() == hoy.date():
+                        h_dia += horas_cronometro_decimales
                     d_nombre = dias_semana_lower[curr.weekday()].replace(" - ", "")
                     st.write(
                         f"• **{d_nombre.capitalize()} {curr.day}:**"
@@ -569,9 +707,12 @@ with col_izq:
                     horas_semana_bloque = 0.0
                     temp = curr
                     while temp <= fin_semana_actual:
-                        horas_semana_bloque += registros_actuales.get(
+                        h_val = registros_actuales.get(
                             temp.strftime("%d-%m-%Y"), 0.0
                         )
+                        if temp.date() == hoy.date():
+                            h_val += horas_cronometro_decimales
+                        horas_semana_bloque += h_val
                         temp += timedelta(days=1)
 
                     st.write(
