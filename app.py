@@ -484,7 +484,7 @@ with col_izq:
                 st.session_state["segundos_acumulados"] = 0
                 st.rerun()
         with c_btn3:
-            btn_registrar_cron = st.button("Registrar", use_container_width=True, type="secondary")
+            btn_registrar_cron = st.button("Registrar crono", use_container_width=True, type="secondary")
 
         if btn_registrar_cron:
             if horas_cronometro_decimales > 0:
