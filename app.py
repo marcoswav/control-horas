@@ -466,25 +466,25 @@ with col_izq:
         with c_btn1:
             if not st.session_state["cronometro_activo"]:
                 # Si está pausado/detenido, el botón sirve para Iniciar o Reanudar desde el tiempo acumulado
-                if st.button("▶️ Iniciar / Reanudar", use_container_width=True, type="primary"):
+                if st.button("Activar", use_container_width=True, type="primary"):
                     st.session_state["cronometro_activo"] = True
                     st.session_state["tiempo_inicio"] = datetime.now()
                     st.rerun()
             else:
                 # Si está activo, el botón sirve para Pausar guardando el acumulado exacto
-                if st.button("⏸️ Pausar", use_container_width=True):
+                if st.button("Pausar", use_container_width=True):
                     st.session_state["segundos_acumulados"] = segundos_totales_crono
                     st.session_state["cronometro_activo"] = False
                     st.session_state["tiempo_inicio"] = None
                     st.rerun()
         with c_btn2:
-            if st.button("🔄 Resetear", use_container_width=True):
+            if st.button("Resetear", use_container_width=True):
                 st.session_state["cronometro_activo"] = False
                 st.session_state["tiempo_inicio"] = None
                 st.session_state["segundos_acumulados"] = 0
                 st.rerun()
         with c_btn3:
-            btn_registrar_cron = st.button("📥 Registrar", use_container_width=True, type="secondary")
+            btn_registrar_cron = st.button("Registrar", use_container_width=True, type="secondary")
 
         if btn_registrar_cron:
             if horas_cronometro_decimales > 0:
@@ -522,7 +522,7 @@ with col_izq:
         with col_reg4:
             st.write("")
             st.write("")
-            btn_guardar = st.button("Guardar Manual", use_container_width=True)
+            btn_guardar = st.button("Registrar", use_container_width=True)
 
         if btn_guardar:
             horas_nuevas = round(input_horas + (input_minutos / 60), 2)
