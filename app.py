@@ -69,12 +69,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ------------------ CONEXIÓN CON GOOGLE SHEETS ------------------
-credenciales_dict = dict(st.secrets["gcp_service_account"])
-gc = gspread.service_account_from_dict(credenciales_dict)
+# ------------------ CONEXIÓN CON GOOGLE SHEETS (OPTIMIZADA CON CACHÉ) ------------------
+@st.cache_resource
+def conectar_gspread():
+    credenciales_dict = dict(st.secrets["gcp_service_account"])
+    gc = gspread.service_account_from_dict(credenciales_dict)
+    sh = gc.open("stock control horas")
+    return sh.get_worksheet(0)
 
-sh = gc.open("stock control horas")
-worksheet = sh.get_worksheet(0)
+worksheet = conectar_gspread()
 
 # ------------------ DICCIONARIOS Y FUNCIONES ------------------
 meses_espanol = {
@@ -206,6 +209,13 @@ def formatear_horas(total_decimales):
 
     resultado = f"{horas_enteras} h y {minutos_restantes} min"
     return f"- {resultado}" if negativo else resultado
+
+
+def formatear_cronometro_detallado(segundos_totales):
+    h = int(segundos_totales // 3600)
+    m = int((segundos_totales % 3600) // 60)
+    s = int(segundos_totales % 60)
+    return f"{h} h : {m:02d} min : {s:02d} seg"
 
 
 def parsear_horas_texto(valor):
@@ -445,7 +455,8 @@ with col_izq:
     # --- 1. CRONÓMETRO Y REGISTRO ---
     st.markdown("### Cronómetro y Registro de Horas")
     with st.container(border=True):
-        st.markdown(f"### ⏱️ {formatear_horas(horas_cronometro_decimales)}")
+        # Mostrar el cronómetro detallado con segundos
+        st.markdown(f"### ⏱️ {formatear_cronometro_detallado(segundos_totales_crono)}")
         
         c_btn1, c_btn2, c_btn3 = st.columns(3)
         with c_btn1:
