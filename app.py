@@ -335,7 +335,7 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
 
     return (
         round(total_hoy, 2),
-        round(total_sem, 2),
+        round(total_semana, 2),  # CORREGIDO AQUÍ (era total_sem)
         round(total_mes, 2),
         round(deuda, 2),
         inicio_semana,
@@ -734,15 +734,12 @@ with col_der:
 
             for i, mes_nombre in enumerate(meses_disponibles):
                 with pestañas[i]:
-                    # Filtrar los datos del mes actual para la tabla
                     df_mes = df_global_asc[df_global_asc["Mes"] == mes_nombre][
                         ["Fecha", "Horas"]
                     ].reset_index(drop=True)
 
-                    # NUEVO: Calcular el total de horas trabajadas en este mes sumando las filas
                     total_horas_mes_actual = df_mes["Horas"].sum()
 
-                    # Mostrar la información en texto dentro de la pestaña
                     st.info(f"📊 **Total horas trabajadas en {mes_nombre}:** {formatear_horas(total_horas_mes_actual)}")
                     st.write(f"Editando registros de: **{mes_nombre}**")
 
