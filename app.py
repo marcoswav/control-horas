@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-# Configuración de la página en ancho ampliado para las duas columnas
+# Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
     page_title="horas Stock",
     page_icon="https://cdn-icons-png.flaticon.com/512/194/194978.png",
