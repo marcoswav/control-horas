@@ -243,6 +243,22 @@ def parsear_horas_texto(valor):
         return 0.0
 
 
+def obtener_dias_laborables_mes(anio, mes):
+    primero = datetime(anio, mes, 1)
+    if mes == 12:
+        siguiente = datetime(anio + 1, 1, 1)
+    else:
+        siguiente = datetime(anio, mes + 1, 1)
+    
+    laborables = 0
+    curr = primero
+    while curr < siguiente:
+        if curr.weekday() < 5:
+            laborables += 1
+        curr += timedelta(days=1)
+    return laborables
+
+
 def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
     hoy_calc = datetime.now()
     hoy_sin_hora = hoy_calc.replace(
@@ -279,12 +295,13 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
     inicio_deuda = datetime(2026, 7, 16)
 
-    # Cálculo estrictamente hasta AYER (excluyendo hoy y días futuros)
+    # Cálculo estrictamente hasta AYER basado en objetivo mensual fijo de 93h por mes
     horas_esperadas_hasta_ayer = 0.0
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
         if curr.weekday() < 5:
-            horas_esperadas_hasta_ayer += 23.0 / 5.0
+            dias_lab_mes = obtener_dias_laborables_mes(curr.year, curr.month)
+            horas_esperadas_hasta_ayer += 93.0 / dias_lab_mes
         curr += timedelta(days=1)
 
     horas_trabajadas_hasta_ayer = 0.0
@@ -306,7 +323,8 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
         while c <= limite:
             if c >= datetime(2026, 7, 16):
                 if c.weekday() < 5:
-                    d_lab += 23.0 / 5.0
+                    dias_lab_mes = obtener_dias_laborables_mes(c.year, c.month)
+                    d_lab += 93.0 / dias_lab_mes
                 h_trab += diccionario_registros.get(c.strftime("%d-%m-%Y"), 0.0)
             c += timedelta(days=1)
         return d_lab - h_trab
@@ -609,7 +627,7 @@ with col_izq:
 
     # Tarjeta Mes
     with col3:
-        progreso_mes = min(max(tot_mes / 92.0, 0.0), 1.0)
+        progreso_mes = min(max(tot_mes / 93.0, 0.0), 1.0)
         st.progress(
             progreso_mes, text=f"Objetivo mensual: {int(progreso_mes * 100)}%"
         )
@@ -650,7 +668,7 @@ with col_izq:
                     curr = fin_semana_actual + timedelta(days=1)
                     semana_num += 1
 
-        fig_mes = generar_pie_chart(tot_mes, 92.0, color_faltante="#3b82f6")
+        fig_mes = generar_pie_chart(tot_mes, 93.0, color_faltante="#3b82f6")
         st.pyplot(fig_mes, use_container_width=True)
 
 with col_der:
@@ -672,7 +690,7 @@ with col_der:
     with st.container(border=True):
         st.metric("Total de horas pendientes de recuperar", formatear_horas(deuda_horas))
         st.caption(
-            "Cálculo basado en 23h/semana (de Lunes a Viernes) desde el 16 de Julio hasta ayer."
+            "Cálculo basado en objetivo de 93h/mes distribuido por días laborables desde el 16 de Julio hasta ayer."
         )
 
         with st.popover("detalles de deuda"):
