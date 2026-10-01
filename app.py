@@ -317,7 +317,7 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
 
     return (
         round(total_hoy, 2),
-        round(total_sem, 2),
+        round(total_semana, 2),
         round(total_mes, 2),
         round(deuda, 2),
         inicio_semana,
