@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-# Configuración de la página en ancho ampliado para las dos columnas
+# Configuración de la página en ancho ampliado para las duas columnas
 st.set_page_config(
-    page_title="Horas Stock",
+    page_title="horas Stock",
     page_icon="https://cdn-icons-png.flaticon.com/512/194/194978.png",
     layout="wide",
 )
@@ -158,6 +158,7 @@ def formato_humano_a_fecha(humano_str):
     for num_mes, nombre_mes in meses_espanol_lower.items():
         if nombre_mes in humano_str:
             import re
+
             numeros = re.findall(r"\d+", humano_str)
             if numeros:
                 dia = int(numeros[0])
@@ -278,7 +279,25 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
     inicio_deuda = datetime(2026, 7, 16)
 
-    # Función auxiliar para calcular deuda/excedente de un rango de fechas de forma exacta (L-V a 23h/sem = 4.6h/día)
+    # Cálculo estrictamente hasta AYER (excluyendo hoy y días futuros)
+    horas_esperadas_hasta_ayer = 0.0
+    curr = inicio_deuda
+    while curr <= ayer_sin_hora:
+        if curr.weekday() < 5:
+            horas_esperadas_hasta_ayer += 23.0 / 5.0
+        curr += timedelta(days=1)
+
+    horas_trabajadas_hasta_ayer = 0.0
+    for fecha_str, horas in diccionario_registros.items():
+        try:
+            fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
+            if inicio_deuda <= fecha_dt <= ayer_sin_hora:
+                horas_trabajadas_hasta_ayer += horas
+        except ValueError:
+            pass
+
+    deuda = horas_esperadas_hasta_ayer - horas_trabajadas_hasta_ayer
+
     def calcular_deuda_mes(inicio_mes_dt, fin_mes_dt):
         d_lab = 0.0
         h_trab = 0.0
@@ -290,31 +309,17 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
                     d_lab += 23.0 / 5.0
                 h_trab += diccionario_registros.get(c.strftime("%d-%m-%Y"), 0.0)
             c += timedelta(days=1)
-        # Si h_trab > d_lab, el resultado es negativo (lo que significa que hay un EXCEDENTE que resta deuda)
         return d_lab - h_trab
 
     deuda_julio = calcular_deuda_mes(datetime(2026, 7, 16), datetime(2026, 7, 31))
     deuda_agosto = calcular_deuda_mes(datetime(2026, 8, 1), datetime(2026, 8, 31))
     deuda_septiembre = calcular_deuda_mes(datetime(2026, 9, 1), ayer_sin_hora)
 
-    # Deuda total acumulada sumando los balances netos de cada período (si en un mes se hizo de más, restará al total)
-    deuda_total = deuda_julio + deuda_agosto + deuda_septiembre
-
-    # Calcular también horas teóricas y trabajadas totales para la barra de progreso global
-    horas_esperadas_hasta_ayer = 0.0
-    horas_trabajadas_hasta_ayer = 0.0
-    curr = inicio_deuda
-    while curr <= ayer_sin_hora:
-        if curr.weekday() < 5:
-            horas_esperadas_hasta_ayer += 23.0 / 5.0
-        horas_trabajadas_hasta_ayer += diccionario_registros.get(curr.strftime("%d-%m-%Y"), 0.0)
-        curr += timedelta(days=1)
-
     return (
         round(total_hoy, 2),
-        round(total_semana, 2),
+        round(total_sem, 2),
         round(total_mes, 2),
-        round(deuda_total, 2),
+        round(deuda, 2),
         inicio_semana,
         inicio_mes,
         round(deuda_julio, 2),
@@ -427,7 +432,7 @@ if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
 
 horas_cronometro_decimales = segundos_totales_crono / 3600.0
 
-# Calcular totales y deudas netas (mes a mes)
+# Las tarjetas de objetivos NO se actualizan hasta dar a Registrar (pasamos 0.0)
 (
     tot_hoy,
     tot_sem,
@@ -454,6 +459,7 @@ with col_izq:
     st.markdown("### Cronómetro y Registro de Horas")
     with st.container(border=True):
         
+        # Visor del cronómetro en tiempo real
         placeholder_crono = st.empty()
         placeholder_crono.markdown(f"### ⏱️ {formatear_cronometro_detallado(segundos_totales_crono)}")
         
@@ -535,7 +541,7 @@ with col_izq:
     st.markdown("---")
 
     # --- 2. RESUMEN ACTUAL ---
-    st.markdown("### Resumen actual")
+    st.markdown("### rezumen actual")
     col1, col2, col3 = st.columns(3)
 
     dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
@@ -663,11 +669,11 @@ with col_der:
     with st.container(border=True):
         st.metric("Total de horas pendientes de recuperar", formatear_horas(deuda_horas))
         st.caption(
-            "Cálculo neto acumulado (si en un mes hiciste más horas del objetivo, restan deuda)."
+            "Cálculo basado en 23h/semana (de Lunes a Viernes) desde el 16 de Julio hasta ayer."
         )
 
         with st.popover("detalles de deuda"):
-            st.markdown("**Balance neto por mes (hasta ayer):**")
+            st.markdown("**Deuda acumulada por mes (hasta ayer):**")
             st.write(f"• **Julio (desde 16):** {formatear_horas(deuda_julio)}")
             st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
             st.write(f"• **Septiembre:** {formatear_horas(deuda_septiembre)}")
@@ -675,7 +681,7 @@ with col_der:
     st.markdown("---")
 
     # --- 4. TABLA DE HISTORIAL Y EDICIÓN ---
-    st.subheader("Horas registradas anteriormente")
+    st.subheader("Horas workeadas anteriormente")
 
     if registros_actuales:
         lista_datos = [
