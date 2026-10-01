@@ -313,7 +313,8 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
 
     deuda_julio = calcular_deuda_mes(datetime(2026, 7, 16), datetime(2026, 7, 31))
     deuda_agosto = calcular_deuda_mes(datetime(2026, 8, 1), datetime(2026, 8, 31))
-    deuda_septiembre = calcular_deuda_mes(datetime(2026, 9, 1), ayer_sin_hora)
+    deuda_septiembre = calcular_deuda_mes(datetime(2026, 9, 1), datetime(2026, 9, 30))
+    deuda_octubre = calcular_deuda_mes(datetime(2026, 10, 1), ayer_sin_hora)
 
     return (
         round(total_hoy, 2),
@@ -325,6 +326,7 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
         round(deuda_julio, 2),
         round(deuda_agosto, 2),
         round(deuda_septiembre, 2),
+        round(deuda_octubre, 2),
         round(horas_esperadas_hasta_ayer, 2),
         round(horas_trabajadas_hasta_ayer, 2),
     )
@@ -443,6 +445,7 @@ horas_cronometro_decimales = segundos_totales_crono / 3600.0
     deuda_julio,
     deuda_agosto,
     deuda_septiembre,
+    deuda_octubre,
     horas_totales_obligatorio,
     horas_totales_trabajadas,
 ) = calcular_totales(registros_actuales, 0.0)
@@ -677,6 +680,7 @@ with col_der:
             st.write(f"• **Julio (desde 16):** {formatear_horas(deuda_julio)}")
             st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
             st.write(f"• **Septiembre:** {formatear_horas(deuda_septiembre)}")
+            st.write(f"• **Octubre:** {formatear_horas(deuda_octubre)}")
 
     st.markdown("---")
 
