@@ -295,7 +295,6 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
     inicio_deuda = datetime(2026, 7, 16)
 
-    # Cálculo estrictamente hasta AYER basado en objetivo mensual fijo de 93h por mes
     horas_esperadas_hasta_ayer = 0.0
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
@@ -336,7 +335,7 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
 
     return (
         round(total_hoy, 2),
-        round(total_semana, 2),
+        round(total_sem, 2),
         round(total_mes, 2),
         round(deuda, 2),
         inicio_semana,
@@ -452,7 +451,6 @@ if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
 
 horas_cronometro_decimales = segundos_totales_crono / 3600.0
 
-# Las tarjetas de objetivos NO se actualizan hasta dar a Registrar (pasamos 0.0)
 (
     tot_hoy,
     tot_sem,
@@ -480,7 +478,6 @@ with col_izq:
     st.markdown("### Cronómetro y Registro de Horas")
     with st.container(border=True):
         
-        # Visor del cronómetro en tiempo real
         placeholder_crono = st.empty()
         placeholder_crono.markdown(f"### ⏱️ {formatear_cronometro_detallado(segundos_totales_crono)}")
         
@@ -737,11 +734,17 @@ with col_der:
 
             for i, mes_nombre in enumerate(meses_disponibles):
                 with pestañas[i]:
-                    st.write(f"Editando registros de: **{mes_nombre}**")
-
+                    # Filtrar los datos del mes actual para la tabla
                     df_mes = df_global_asc[df_global_asc["Mes"] == mes_nombre][
                         ["Fecha", "Horas"]
                     ].reset_index(drop=True)
+
+                    # NUEVO: Calcular el total de horas trabajadas en este mes sumando las filas
+                    total_horas_mes_actual = df_mes["Horas"].sum()
+
+                    # Mostrar la información en texto dentro de la pestaña
+                    st.info(f"📊 **Total horas trabajadas en {mes_nombre}:** {formatear_horas(total_horas_mes_actual)}")
+                    st.write(f"Editando registros de: **{mes_nombre}**")
 
                     df_mes_visual = df_mes.copy()
                     df_mes_visual["Fecha"] = df_mes_visual["Fecha"].apply(
