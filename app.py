@@ -740,7 +740,7 @@ with col_der:
 
                     total_horas_mes_actual = df_mes["Horas"].sum()
 
-                    st.info(f"📊 **Total horas trabajadas en {mes_nombre}:** {formatear_horas(total_horas_mes_actual)}")
+                    st.info(f"Total horas trabajadas en {mes_nombre}: {formatear_horas(total_horas_mes_actual)}")
                     st.write(f"Editando registros de: **{mes_nombre}**")
 
                     df_mes_visual = df_mes.copy()
