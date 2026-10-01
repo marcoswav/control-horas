@@ -7,7 +7,7 @@ import streamlit as st
 
 # Configuración de la página en ancho ampliado para las dos columnas
 st.set_page_config(
-    page_title="horas Stock",
+    page_title="Horas Stock",
     page_icon="https://cdn-icons-png.flaticon.com/512/194/194978.png",
     layout="wide",
 )
@@ -158,7 +158,6 @@ def formato_humano_a_fecha(humano_str):
     for num_mes, nombre_mes in meses_espanol_lower.items():
         if nombre_mes in humano_str:
             import re
-
             numeros = re.findall(r"\d+", humano_str)
             if numeros:
                 dia = int(numeros[0])
@@ -465,13 +464,11 @@ with col_izq:
         c_btn1, c_btn2, c_btn3 = st.columns(3)
         with c_btn1:
             if not st.session_state["cronometro_activo"]:
-                # Si está pausado/detenido, el botón sirve para Iniciar o Reanudar desde el tiempo acumulado
                 if st.button("Activar", use_container_width=True, type="primary"):
                     st.session_state["cronometro_activo"] = True
                     st.session_state["tiempo_inicio"] = datetime.now()
                     st.rerun()
             else:
-                # Si está activo, el botón sirve para Pausar guardando el acumulado exacto
                 if st.button("Pausar", use_container_width=True):
                     st.session_state["segundos_acumulados"] = segundos_totales_crono
                     st.session_state["cronometro_activo"] = False
@@ -543,7 +540,7 @@ with col_izq:
     st.markdown("---")
 
     # --- 2. RESUMEN ACTUAL ---
-    st.markdown("### rezumen actual")
+    st.markdown("### Resumen actual")
     col1, col2, col3 = st.columns(3)
 
     dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
@@ -683,7 +680,7 @@ with col_der:
     st.markdown("---")
 
     # --- 4. TABLA DE HISTORIAL Y EDICIÓN ---
-    st.subheader("Horas workeadas anteriormente")
+    st.subheader("Horas registradas anteriormente")
 
     if registros_actuales:
         lista_datos = [
