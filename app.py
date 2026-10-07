@@ -38,6 +38,7 @@ st.markdown(
             overflow-wrap: break-word !important;
         }
         
+        /* Forzar misma altura exacta en los tres contenedores de las tarjetas */
         div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] > div > div[data-testid="stVerticalBlock"] > div[data-testid="stContainer"] {
             height: 175px !important;
             display: flex !important;
@@ -45,6 +46,7 @@ st.markdown(
             justify-content: space-between !important;
         }
         
+        /* Degradado azul para progreso normal */
         div[data-testid="stProgress"] > div > div > div {
             background-image: linear-gradient(90deg, #3b82f6, #1d4ed8, #60a5fa);
             background-size: 200% 100%;
@@ -52,6 +54,7 @@ st.markdown(
             transition: width 0.6s ease-in-out;
         }
 
+        /* Degradado rosa para cuando el objetivo está completado (100% o más) */
         div[data-testid="stProgress"] div[aria-valuenow="100"] > div > div,
         div[data-testid="stProgress"] div[aria-valuenow="100.0"] > div > div {
             background-image: linear-gradient(90deg, #ec4899, #be185d, #f472b6) !important;
@@ -67,62 +70,57 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ------------------ CONEXIÓN CON GOOGLE SHEETS ------------------
+# ------------------ CONEXIÓN CON GOOGLE SHEETS (OPTIMIZADA CON CACHÉ) ------------------
 @st.cache_resource
 def conectar_gspread():
     credenciales_dict = dict(st.secrets["gcp_service_account"])
     gc = gspread.service_account_from_dict(credenciales_dict)
     sh = gc.open("stock control horas")
-    return sh
+    return sh.get_worksheet(0)
 
-spreadsheet_global = conectar_gspread()
-worksheet = spreadsheet_global.get_worksheet(0) # Pestaña 1: Horas
+worksheet = conectar_gspread()
 
 # ------------------ DICCIONARIOS Y FUNCIONES ------------------
 meses_espanol = {
-    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
-    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
-    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre",
 }
 
 meses_espanol_lower = {
-    1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
-    5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
-    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+    1: "enero",
+    2: "febrero",
+    3: "marzo",
+    4: "abril",
+    5: "mayo",
+    6: "junio",
+    7: "julio",
+    8: "agosto",
+    9: "septiembre",
+    10: "octubre",
+    11: "noviembre",
+    12: "diciembre",
 }
 
 dias_semana_lower = {
-    0: "L - ", 1: "M - ", 2: "X - ", 3: "J - ", 4: "V - ", 5: "S - ", 6: "D - ",
+    0: "L - ",
+    1: "M - ",
+    2: "X - ",
+    3: "J - ",
+    4: "V - ",
+    5: "S - ",
+    6: "D - ",
 }
 
-# Gestión de la pestaña "No laborales" en Google Sheets (creación automática si no existe)
-def obtener_festivos_hoja():
-    festivos_iniciales = [
-        "02-01-2026", "31-05-2026", "15-08-2026", 
-        "12-10-2026", "01-11-2026", "08-12-2026", "25-12-2026"
-    ]
-    festivos_set = set(festivos_iniciales)
-    
-    try:
-        ws_festivos = spreadsheet_global.worksheet("No laborales")
-        registros_festivos = ws_festivos.get_all_records()
-        for fila in registros_festivos:
-            fec = limpiar_fecha(fila.get("Fecha", ""))
-            if fec:
-                festivos_set.add(fec)
-    except gspread.exceptions.WorksheetNotFound:
-        # Si la pestaña no existe, la crea automáticamente la primera vez e inserta los datos base
-        try:
-            ws_festivos = spreadsheet_global.add_worksheet(title="No laborales", rows=100, cols=2)
-            ws_festivos.append_row(["Fecha"], value_input_option="USER_ENTERED")
-            for fec_base in festivos_iniciales:
-                ws_festivos.append_row([f"'{fec_base}"], value_input_option="USER_ENTERED")
-        except Exception:
-            pass
-    except Exception:
-        pass
-        
-    return festivos_set
 
 def limpiar_fecha(fec_str):
     fec_str = str(fec_str).strip()
@@ -137,6 +135,7 @@ def limpiar_fecha(fec_str):
         pass
     return fec_str
 
+
 def fecha_a_formato_humano(fec_str):
     try:
         dt = datetime.strptime(fec_str, "%d-%m-%Y")
@@ -146,14 +145,30 @@ def fecha_a_formato_humano(fec_str):
     except Exception:
         return fec_str
 
-def es_dia_laborable(dt, festivos_extra_web={}):
-    if dt.weekday() >= 5:
-        return False
-    fec_str = dt.strftime("%d-%m-%Y")
-    festivos_totales = obtener_festivos_hoja().union(festivos_extra_web)
-    if fec_str in festivos_totales:
-        return False
-    return True
+
+def formato_humano_a_fecha(humano_str):
+    humano_str = str(humano_str).strip().lower()
+    try:
+        datetime.strptime(humano_str, "%d-%m-%Y")
+        return humano_str
+    except ValueError:
+        pass
+
+    hoy_anio = datetime.now().year
+    for num_mes, nombre_mes in meses_espanol_lower.items():
+        if nombre_mes in humano_str:
+            import re
+
+            numeros = re.findall(r"\d+", humano_str)
+            if numeros:
+                dia = int(numeros[0])
+                try:
+                    dt = datetime(hoy_anio, num_mes, dia)
+                    return dt.strftime("%d-%m-%Y")
+                except ValueError:
+                    pass
+    return humano_str
+
 
 def obtener_datos_hoja():
     try:
@@ -181,6 +196,7 @@ def obtener_datos_hoja():
 
     return diccionario_registros
 
+
 def formatear_horas(total_decimales):
     negativo = total_decimales < 0
     total_decimales = abs(total_decimales)
@@ -195,13 +211,39 @@ def formatear_horas(total_decimales):
     resultado = f"{horas_enteras} h y {minutos_restantes} min"
     return f"- {resultado}" if negativo else resultado
 
+
 def formatear_cronometro_detallado(segundos_totales):
     h = int(segundos_totales // 3600)
     m = int((segundos_totales % 3600) // 60)
     s = int(segundos_totales % 60)
     return f"{h} h : {m:02d} min : {s:02d} seg"
 
-def obtener_dias_laborables_mes(anio, mes, festivos_extra_web={}):
+
+def parsear_horas_texto(valor):
+    if pd.isnull(valor):
+        return 0.0
+    if isinstance(valor, (int, float)):
+        return float(valor)
+
+    val_str = str(valor).lower().strip()
+    try:
+        if "h" in val_str or "min" in val_str:
+            partes = val_str.replace(" y ", " ").split()
+            h = 0.0
+            m = 0.0
+            for i, p in enumerate(partes):
+                if "h" in p and i > 0:
+                    h = float(partes[i - 1])
+                elif "min" in p and i > 0:
+                    m = float(partes[i - 1])
+            return h + (m / 60.0)
+        else:
+            return float(val_str)
+    except Exception:
+        return 0.0
+
+
+def obtener_dias_laborables_mes(anio, mes):
     primero = datetime(anio, mes, 1)
     if mes == 12:
         siguiente = datetime(anio + 1, 1, 1)
@@ -211,14 +253,17 @@ def obtener_dias_laborables_mes(anio, mes, festivos_extra_web={}):
     laborables = 0
     curr = primero
     while curr < siguiente:
-        if es_dia_laborable(curr, festivos_extra_web):
+        if curr.weekday() < 5:
             laborables += 1
         curr += timedelta(days=1)
-    return laborables if laborables > 0 else 1
+    return laborables
 
-def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos_extra_web={}):
+
+def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
     hoy_calc = datetime.now()
-    hoy_sin_hora = hoy_calc.replace(hour=0, minute=0, second=0, microsecond=0)
+    hoy_sin_hora = hoy_calc.replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     hoy_str_calc = hoy_calc.strftime("%d-%m-%Y")
 
     total_hoy = diccionario_registros.get(hoy_str_calc, 0.0) + horas_cronometro_extra
@@ -248,13 +293,13 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos
     total_mes += horas_cronometro_extra
 
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
-    inicio_deuda = datetime(2026, 7, 22)
+    inicio_deuda = datetime(2026, 7, 16)
 
     horas_esperadas_hasta_ayer = 0.0
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
-        if es_dia_laborable(curr, festivos_extra_web):
-            dias_lab_mes = obtener_dias_laborables_mes(curr.year, curr.month, festivos_extra_web)
+        if curr.weekday() < 5:
+            dias_lab_mes = obtener_dias_laborables_mes(curr.year, curr.month)
             horas_esperadas_hasta_ayer += 93.0 / dias_lab_mes
         curr += timedelta(days=1)
 
@@ -275,22 +320,22 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos
         c = inicio_mes_dt
         limite = min(fin_mes_dt, ayer_sin_hora)
         while c <= limite:
-            if c >= datetime(2026, 7, 22):
-                if es_dia_laborable(c, festivos_extra_web):
-                    dias_lab_mes = obtener_dias_laborables_mes(c.year, c.month, festivos_extra_web)
+            if c >= datetime(2026, 7, 16):
+                if c.weekday() < 5:
+                    dias_lab_mes = obtener_dias_laborables_mes(c.year, c.month)
                     d_lab += 93.0 / dias_lab_mes
                 h_trab += diccionario_registros.get(c.strftime("%d-%m-%Y"), 0.0)
             c += timedelta(days=1)
         return d_lab - h_trab
 
-    deuda_julio = calcular_deuda_mes(datetime(2026, 7, 22), datetime(2026, 7, 31))
+    deuda_julio = calcular_deuda_mes(datetime(2026, 7, 16), datetime(2026, 7, 31))
     deuda_agosto = calcular_deuda_mes(datetime(2026, 8, 1), datetime(2026, 8, 31))
     deuda_septiembre = calcular_deuda_mes(datetime(2026, 9, 1), datetime(2026, 9, 30))
     deuda_octubre = calcular_deuda_mes(datetime(2026, 10, 1), ayer_sin_hora)
 
     return (
         round(total_hoy, 2),
-        round(total_semana, 2),
+        round(total_semana, 2),  # CORREGIDO AQUÍ (era total_sem)
         round(total_mes, 2),
         round(deuda, 2),
         inicio_semana,
@@ -303,14 +348,19 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos
         round(horas_trabajadas_hasta_ayer, 2),
     )
 
+
 def actualizar_fila_en_sheet(fecha_fec, nueva_hora):
     try:
         filas = worksheet.get_all_values()
         fecha_como_texto = f"'{fecha_fec}"
 
         if not filas:
-            worksheet.append_row(["Fecha", "Horas"], value_input_option="USER_ENTERED")
-            worksheet.append_row([fecha_como_texto, float(nueva_hora)], value_input_option="USER_ENTERED")
+            worksheet.append_row(
+                ["Fecha", "Horas"], value_input_option="USER_ENTERED"
+            )
+            worksheet.append_row(
+                [fecha_como_texto, float(nueva_hora)], value_input_option="USER_ENTERED"
+            )
             return True
 
         encontrado = False
@@ -322,12 +372,32 @@ def actualizar_fila_en_sheet(fecha_fec, nueva_hora):
                 break
 
         if not encontrado:
-            worksheet.append_row([fecha_como_texto, float(nueva_hora)], value_input_option="USER_ENTERED")
+            worksheet.append_row(
+                [fecha_como_texto, float(nueva_hora)], value_input_option="USER_ENTERED"
+            )
 
         return True
     except Exception as e:
         st.error(f"Error al actualizar la hoja: {e}")
         return False
+
+
+def guardar_todo_en_sheet(diccionario_registros):
+    try:
+        worksheet.clear()
+        datos_para_guardar = [["Fecha", "Horas"]]
+        for fec in sorted(diccionario_registros.keys()):
+            fecha_como_texto = f"'{fec}"
+            datos_para_guardar.append(
+                [fecha_como_texto, float(diccionario_registros[fec])]
+            )
+
+        worksheet.append_rows(datos_para_guardar, value_input_option="USER_ENTERED")
+        return True
+    except Exception as e:
+        st.error(f"Error al sincronizar con Google Sheets: {e}")
+        return False
+
 
 def generar_pie_chart(actual, objetivo, color_faltante="#3b82f6"):
     fig, ax = plt.subplots(figsize=(2.2, 2.2))
@@ -354,15 +424,13 @@ def generar_pie_chart(actual, objetivo, color_faltante="#3b82f6"):
     plt.tight_layout()
     return fig
 
+
 # ------------------ INICIALIZACIÓN DE ESTADOS ------------------
 hoy = datetime.now()
 hoy_str = hoy.strftime("%d-%m-%Y")
 
 if "registros" not in st.session_state:
     st.session_state["registros"] = obtener_datos_hoja()
-
-if "festivos_web" not in st.session_state:
-    st.session_state["festivos_web"] = set()
 
 if "cronometro_activo" not in st.session_state:
     st.session_state["cronometro_activo"] = False
@@ -375,6 +443,7 @@ if "segundos_acumulados" not in st.session_state:
 
 registros_actuales = st.session_state["registros"]
 
+# Calcular segundos actuales del cronómetro en tiempo real
 segundos_totales_crono = st.session_state["segundos_acumulados"]
 if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
     diferencia = datetime.now() - st.session_state["tiempo_inicio"]
@@ -395,13 +464,13 @@ horas_cronometro_decimales = segundos_totales_crono / 3600.0
     deuda_octubre,
     horas_totales_obligatorio,
     horas_totales_trabajadas,
-) = calcular_totales(registros_actuales, 0.0, st.session_state["festivos_web"])
+) = calcular_totales(registros_actuales, 0.0)
 
 # ------------------ TÍTULO PRINCIPAL DE LA WEB ------------------
 st.title("Control horas work")
 st.markdown("---")
 
-# ------------------ DISEÑO GENERAL (2 COLUMNAS) ------------------
+# ------------------ DISEÑO GENERAL DE LA INTERFAZ (2 COLUMNAS) ------------------
 col_izq, col_der = st.columns([1.1, 0.9])
 
 with col_izq:
@@ -463,7 +532,9 @@ with col_izq:
         with col_reg2:
             input_horas = st.number_input("Horas:", min_value=0, value=0, step=1)
         with col_reg3:
-            input_minutos = st.number_input("Minutos:", min_value=0, max_value=59, value=0, step=1)
+            input_minutos = st.number_input(
+                "Minutos:", min_value=0, max_value=59, value=0, step=1
+            )
         with col_reg4:
             st.write("")
             st.write("")
@@ -488,7 +559,7 @@ with col_izq:
     st.markdown("---")
 
     # --- 2. RESUMEN ACTUAL ---
-    st.markdown("### Resumen actual")
+    st.markdown("### rezumen actual")
     col1, col2, col3 = st.columns(3)
 
     dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
@@ -496,15 +567,15 @@ with col_izq:
 
     # Tarjeta Hoy
     with col1:
-        es_no_laborable = not es_dia_laborable(hoy, st.session_state["festivos_web"])
+        es_fin_de_semana = hoy.weekday() >= 5
         
-        if es_no_laborable:
+        if es_fin_de_semana:
             base_comparativa_hoy = 4.0
             horas_efectivas_hoy = max(tot_hoy, 4.0) if tot_hoy > 0 else 4.0
             progreso_hoy = min(max(horas_efectivas_hoy / base_comparativa_hoy, 0.0), 1.0)
             if tot_hoy > 4.0:
                 progreso_hoy = 1.0
-            texto_progreso = f"Día no laborable/Festivo: {int(max(tot_hoy / 4.0, 1.0) * 100)}%"
+            texto_progreso = f"Fin de semana: {int(max(tot_hoy / 4.0, 1.0) * 100)}%"
         else:
             progreso_hoy = min(max(tot_hoy / 4.0, 0.0), 1.0)
             texto_progreso = f"Objetivo diario: {int(progreso_hoy * 100)}%"
@@ -515,20 +586,25 @@ with col_izq:
             st.metric("Hoy", formatear_horas(tot_hoy))
             st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
-        valor_pie_hoy = max(tot_hoy, 4.0) if es_no_laborable else tot_hoy
+        valor_pie_hoy = max(tot_hoy, 4.0) if es_fin_de_semana else tot_hoy
         fig_hoy = generar_pie_chart(valor_pie_hoy, 4.0, color_faltante="#3b82f6")
         st.pyplot(fig_hoy, use_container_width=True)
 
     # Tarjeta Semana
     with col2:
         progreso_sem = min(max(tot_sem / 23.0, 0.0), 1.0)
-        st.progress(progreso_sem, text=f"Objetivo semanal: {int(progreso_sem * 100)}%")
+        st.progress(
+            progreso_sem, text=f"Objetivo semanal: {int(progreso_sem * 100)}%"
+        )
 
         with st.container(border=True):
             st.metric("Semana", formatear_horas(tot_sem))
             dia_sem_nombre = dias_semana_lower[inicio_sem_dt.weekday()]
             mes_sem_nombre = meses_espanol_lower[inicio_sem_dt.month]
-            st.caption(f"Contando desde el {dia_sem_nombre} {inicio_sem_dt.day} de {mes_sem_nombre}")
+            st.caption(
+                f"Contando desde el {dia_sem_nombre} {inicio_sem_dt.day}"
+                f" de {mes_sem_nombre}"
+            )
 
             with st.popover("detalles"):
                 st.markdown("**Desglose de esta semana:**")
@@ -537,7 +613,10 @@ with col_izq:
                     f_str = curr.strftime("%d-%m-%Y")
                     h_dia = registros_actuales.get(f_str, 0.0)
                     d_nombre = dias_semana_lower[curr.weekday()].replace(" - ", "")
-                    st.write(f"• **{d_nombre.capitalize()} {curr.day}:** {formatear_horas(h_dia)}")
+                    st.write(
+                        f"• **{d_nombre.capitalize()} {curr.day}:**"
+                        f" {formatear_horas(h_dia)}"
+                    )
                     curr += timedelta(days=1)
 
         fig_sem = generar_pie_chart(tot_sem, 23.0, color_faltante="#3b82f6")
@@ -546,13 +625,17 @@ with col_izq:
     # Tarjeta Mes
     with col3:
         progreso_mes = min(max(tot_mes / 93.0, 0.0), 1.0)
-        st.progress(progreso_mes, text=f"Objetivo mensual: {int(progreso_mes * 100)}%")
+        st.progress(
+            progreso_mes, text=f"Objetivo mensual: {int(progreso_mes * 100)}%"
+        )
 
         with st.container(border=True):
             st.metric("Mes", formatear_horas(tot_mes))
             dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
             mes_mes_nombre = meses_espanol_lower[inicio_mes_dt.month]
-            st.caption(f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}")
+            st.caption(
+                f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}"
+            )
 
             with st.popover("detalles"):
                 st.markdown(f"**Semanas de {meses_espanol[hoy.month]}:**")
@@ -567,7 +650,9 @@ with col_izq:
                     horas_semana_bloque = 0.0
                     temp = curr
                     while temp <= fin_semana_actual:
-                        h_val = registros_actuales.get(temp.strftime("%d-%m-%Y"), 0.0)
+                        h_val = registros_actuales.get(
+                            temp.strftime("%d-%m-%Y"), 0.0
+                        )
                         horas_semana_bloque += h_val
                         temp += timedelta(days=1)
 
@@ -602,26 +687,27 @@ with col_der:
     with st.container(border=True):
         st.metric("Total de horas pendientes de recuperar", formatear_horas(deuda_horas))
         st.caption(
-            "Cálculo basado en objetivo de 93h/mes distribuido por días laborables desde el 22 de Julio hasta ayer (excluyendo festivos y fines de semana)."
+            "Cálculo basado en objetivo de 93h/mes distribuido por días laborables desde el 16 de Julio hasta ayer."
         )
 
         with st.popover("detalles de deuda"):
             st.markdown("**Deuda acumulada por mes (hasta ayer):**")
-            st.write(f"• **Julio (desde 22):** {formatear_horas(deuda_julio)}")
+            st.write(f"• **Julio (desde 16):** {formatear_horas(deuda_julio)}")
             st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
             st.write(f"• **Septiembre:** {formatear_horas(deuda_septiembre)}")
             st.write(f"• **Octubre:** {formatear_horas(deuda_octubre)}")
 
     st.markdown("---")
 
-    # --- 4. TABLA DE HISTORIAL Y GESTIÓN DE FESTIVOS ---
-    st.subheader("Historial de Horas y Control de Festivos")
+    # --- 4. TABLA DE HISTORIAL Y EDICIÓN ---
+    st.subheader("Horas workeadas anteriormente")
 
     if registros_actuales:
         lista_datos = [
             {"Fecha": f, "Horas": h} for f, h in registros_actuales.items()
         ]
         df_global = pd.DataFrame(lista_datos)
+
         df_global["Fecha_dt"] = pd.to_datetime(
             df_global["Fecha"], format="%d-%m-%Y", errors="coerce"
         )
@@ -635,8 +721,13 @@ with col_der:
         )
 
         df_global_desc = df_global.sort_values(by="Fecha_dt", ascending=False)
-        meses_disponibles = [m for m in df_global_desc["Mes"].unique()]
+        meses_disponibles = []
+        for m in df_global_desc["Mes"]:
+            if m not in meses_disponibles:
+                meses_disponibles.append(m)
+
         df_global_asc = df_global.sort_values(by="Fecha_dt", ascending=True)
+        df_global_asc = df_global_asc.drop(columns=["Fecha_dt"])
 
         if meses_disponibles:
             pestañas = st.tabs(meses_disponibles)
@@ -647,52 +738,53 @@ with col_der:
                         ["Fecha", "Horas"]
                     ].reset_index(drop=True)
 
-                    def es_festivo_fila(fec_str):
-                        try:
-                            dt = datetime.strptime(fec_str, "%d-%m-%Y")
-                            return not es_dia_laborable(dt, st.session_state["festivos_web"])
-                        except:
-                            return False
-
-                    df_mes["Festivo / No laborable"] = df_mes["Fecha"].apply(es_festivo_fila)
-
                     total_horas_mes_actual = df_mes["Horas"].sum()
+
                     st.info(f"Total horas trabajadas en {mes_nombre}: {formatear_horas(total_horas_mes_actual)}")
-                    st.write(f"Gestiona los festivos de **{mes_nombre}**:")
+                    st.write(f"Editando registros de: **{mes_nombre}**")
+
+                    df_mes_visual = df_mes.copy()
+                    df_mes_visual["Fecha"] = df_mes_visual["Fecha"].apply(
+                        fecha_a_formato_humano
+                    )
+                    df_mes_visual["Horas"] = df_mes_visual["Horas"].apply(formatear_horas)
 
                     df_editado = st.data_editor(
-                        df_mes,
-                        column_config={
-                            "Fecha": st.column_config.TextColumn("Fecha", disabled=True),
-                            "Horas": st.column_config.NumberColumn("Horas", disabled=True),
-                            "Festivo / No laborable": st.column_config.CheckboxColumn(
-                                "Es Festivo / No Laborable",
-                                help="Marca o desmarca si este día cuenta como festivo/no laborable.",
-                                default=False,
-                            ),
-                        },
+                        df_mes_visual,
+                        key=f"editor_{i}_{mes_nombre}",
+                        use_container_width=True,
                         hide_index=True,
-                        key=f"editor_festivos_{i}"
+                        height=280,
                     )
 
-                    # Detectar cambios en los checkboxes de la tabla interactiva
-                    cambios_detectados = False
-                    for idx, row in df_editado.iterrows():
-                        fec_row = row["Fecha"]
-                        es_festivo_check = row["Festivo / No laborable"]
-                        dt_row = datetime.strptime(fec_row, "%d-%m-%Y")
-                        
-                        # Comprobar si difiere del estado base en Google Sheets / fines de semana
-                        es_base_festivo = not es_dia_laborable(dt_row, set())
-                        
-                        if es_festivo_check and not es_base_festivo:
-                            if fec_row not in st.session_state["festivos_web"]:
-                                st.session_state["festivos_web"].add(fec_row)
-                                cambios_detectados = True
-                        elif not es_festivo_check and es_base_festivo:
-                            if fec_row in st.session_state["festivos_web"]:
-                                st.session_state["festivos_web"].remove(fec_row)
-                                cambios_detectados = True
+                    if not df_editado.equals(df_mes_visual):
+                        fechas_convertidas = df_editado["Fecha"].apply(
+                            formato_humano_a_fecha
+                        )
+                        df_global_asc.loc[df_global_asc["Mes"] == mes_nombre, "Fecha"] = (
+                            fechas_convertidas.values
+                        )
+                        df_global_asc.loc[df_global_asc["Mes"] == mes_nombre, "Horas"] = (
+                            df_editado["Horas"].apply(parsear_horas_texto).values
+                        )
 
-                    if cambios_detectados:
+                        df_para_guardar = df_global_asc[["Fecha", "Horas"]]
+
+                        nuevo_diccionario = {}
+                        for _, r in df_para_guardar.iterrows():
+                            fec_limpia = limpiar_fecha(r["Fecha"])
+                            val_horas = parsear_horas_texto(r["Horas"])
+                            nuevo_diccionario[fec_limpia] = val_horas
+
+                        guardar_todo_en_sheet(nuevo_diccionario)
+                        st.session_state["registros"] = nuevo_diccionario
+
+                        st.success("Se han guardado los cambios.")
                         st.rerun()
+    else:
+        st.info("Aún no hay registros en la base de datos.")
+
+# ------------------ BUCLE DE ACTUALIZACIÓN EN TIEMPO REAL ------------------
+if st.session_state["cronometro_activo"]:
+    time.sleep(1)
+    st.rerun()
