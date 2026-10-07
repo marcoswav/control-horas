@@ -88,4 +88,611 @@ meses_espanol = {
 meses_espanol_lower = {
     1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
     5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
-    9: "septiembre", 10: "octubre",
+    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+}
+
+dias_semana_lower = {
+    0: "L - ", 1: "M - ", 2: "X - ", 3: "J - ", 4: "V - ", 5: "S - ", 6: "D - ",
+}
+
+# Gestión de la pestaña "No laborales" en Google Sheets (creación automática si no existe)
+def obtener_festivos_hoja():
+    festivos_iniciales = [
+        "02-01-2026", "31-05-2026", "15-08-2026", 
+        "12-10-2026", "01-11-2026", "08-12-2026", "25-12-2026"
+    ]
+    festivos_set = set(festivos_iniciales)
+    
+    try:
+        ws_festivos = spreadsheet_global.worksheet("No laborales")
+        registros_festivos = ws_festivos.get_all_records()
+        for fila in registros_festivos:
+            fec = limpiar_fecha(fila.get("Fecha", ""))
+            if fec:
+                festivos_set.add(fec)
+    except gspread.exceptions.WorksheetNotFound:
+        # Si la pestaña no existe, la crea automáticamente la primera vez e inserta los datos base
+        try:
+            ws_festivos = spreadsheet_global.add_worksheet(title="No laborales", rows=100, cols=2)
+            ws_festivos.append_row(["Fecha"], value_input_option="USER_ENTERED")
+            for fec_base in festivos_iniciales:
+                ws_festivos.append_row([f"'{fec_base}"], value_input_option="USER_ENTERED")
+        except Exception:
+            pass
+    except Exception:
+        pass
+        
+    return festivos_set
+
+def limpiar_fecha(fec_str):
+    fec_str = str(fec_str).strip()
+    try:
+        for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
+            try:
+                dt = datetime.strptime(fec_str, fmt)
+                return dt.strftime("%d-%m-%Y")
+            except ValueError:
+                continue
+    except Exception:
+        pass
+    return fec_str
+
+def fecha_a_formato_humano(fec_str):
+    try:
+        dt = datetime.strptime(fec_str, "%d-%m-%Y")
+        dia_sem = dias_semana_lower[dt.weekday()]
+        mes = meses_espanol_lower[dt.month]
+        return f"{dia_sem} {dt.day} de {mes}"
+    except Exception:
+        return fec_str
+
+def es_dia_laborable(dt, festivos_extra_web={}):
+    if dt.weekday() >= 5:
+        return False
+    fec_str = dt.strftime("%d-%m-%Y")
+    festivos_totales = obtener_festivos_hoja().union(festivos_extra_web)
+    if fec_str in festivos_totales:
+        return False
+    return True
+
+def obtener_datos_hoja():
+    try:
+        registros = worksheet.get_all_records()
+    except Exception:
+        return {}
+
+    diccionario_registros = {}
+    for fila in registros:
+        fecha_raw = fila.get("Fecha", "")
+        fecha = limpiar_fecha(fecha_raw)
+        if not fecha or fecha == "Fecha":
+            continue
+
+        raw_horas = fila.get("Horas", 0)
+        try:
+            horas = float(raw_horas) if str(raw_horas).strip() != "" else 0.0
+        except ValueError:
+            horas = 0.0
+
+        if fecha in diccionario_registros:
+            diccionario_registros[fecha] += horas
+        else:
+            diccionario_registros[fecha] = horas
+
+    return diccionario_registros
+
+def formatear_horas(total_decimales):
+    negativo = total_decimales < 0
+    total_decimales = abs(total_decimales)
+
+    horas_enteras = int(total_decimales)
+    minutos_restantes = int(round((total_decimales - horas_enteras) * 60))
+
+    if minutos_restantes == 60:
+        horas_enteras += 1
+        minutos_restantes = 0
+
+    resultado = f"{horas_enteras} h y {minutos_restantes} min"
+    return f"- {resultado}" if negativo else resultado
+
+def formatear_cronometro_detallado(segundos_totales):
+    h = int(segundos_totales // 3600)
+    m = int((segundos_totales % 3600) // 60)
+    s = int(segundos_totales % 60)
+    return f"{h} h : {m:02d} min : {s:02d} seg"
+
+def obtener_dias_laborables_mes(anio, mes, festivos_extra_web={}):
+    primero = datetime(anio, mes, 1)
+    if mes == 12:
+        siguiente = datetime(anio + 1, 1, 1)
+    else:
+        siguiente = datetime(anio, mes + 1, 1)
+    
+    laborables = 0
+    curr = primero
+    while curr < siguiente:
+        if es_dia_laborable(curr, festivos_extra_web):
+            laborables += 1
+        curr += timedelta(days=1)
+    return laborables if laborables > 0 else 1
+
+def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos_extra_web={}):
+    hoy_calc = datetime.now()
+    hoy_sin_hora = hoy_calc.replace(hour=0, minute=0, second=0, microsecond=0)
+    hoy_str_calc = hoy_calc.strftime("%d-%m-%Y")
+
+    total_hoy = diccionario_registros.get(hoy_str_calc, 0.0) + horas_cronometro_extra
+    total_mes = 0.0
+    total_semana = 0.0
+
+    if hoy_calc.weekday() == 0:
+        inicio_semana = hoy_sin_hora
+    else:
+        inicio_semana = hoy_sin_hora - timedelta(days=hoy_calc.weekday())
+    fin_semana = hoy_calc
+
+    inicio_mes = hoy_sin_hora.replace(day=1)
+    fin_mes = hoy_calc
+
+    for fecha_str, horas in diccionario_registros.items():
+        try:
+            fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
+            if inicio_semana <= fecha_dt <= fin_semana:
+                total_semana += horas
+            if inicio_mes <= fecha_dt <= fin_mes:
+                total_mes += horas
+        except ValueError:
+            pass
+
+    total_semana += horas_cronometro_extra
+    total_mes += horas_cronometro_extra
+
+    ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
+    inicio_deuda = datetime(2026, 7, 22)
+
+    horas_esperadas_hasta_ayer = 0.0
+    curr = inicio_deuda
+    while curr <= ayer_sin_hora:
+        if es_dia_laborable(curr, festivos_extra_web):
+            dias_lab_mes = obtener_dias_laborables_mes(curr.year, curr.month, festivos_extra_web)
+            horas_esperadas_hasta_ayer += 93.0 / dias_lab_mes
+        curr += timedelta(days=1)
+
+    horas_trabajadas_hasta_ayer = 0.0
+    for fecha_str, horas in diccionario_registros.items():
+        try:
+            fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
+            if inicio_deuda <= fecha_dt <= ayer_sin_hora:
+                horas_trabajadas_hasta_ayer += horas
+        except ValueError:
+            pass
+
+    deuda = horas_esperadas_hasta_ayer - horas_trabajadas_hasta_ayer
+
+    def calcular_deuda_mes(inicio_mes_dt, fin_mes_dt):
+        d_lab = 0.0
+        h_trab = 0.0
+        c = inicio_mes_dt
+        limite = min(fin_mes_dt, ayer_sin_hora)
+        while c <= limite:
+            if c >= datetime(2026, 7, 22):
+                if es_dia_laborable(c, festivos_extra_web):
+                    dias_lab_mes = obtener_dias_laborables_mes(c.year, c.month, festivos_extra_web)
+                    d_lab += 93.0 / dias_lab_mes
+                h_trab += diccionario_registros.get(c.strftime("%d-%m-%Y"), 0.0)
+            c += timedelta(days=1)
+        return d_lab - h_trab
+
+    deuda_julio = calcular_deuda_mes(datetime(2026, 7, 22), datetime(2026, 7, 31))
+    deuda_agosto = calcular_deuda_mes(datetime(2026, 8, 1), datetime(2026, 8, 31))
+    deuda_septiembre = calcular_deuda_mes(datetime(2026, 9, 1), datetime(2026, 9, 30))
+    deuda_octubre = calcular_deuda_mes(datetime(2026, 10, 1), ayer_sin_hora)
+
+    return (
+        round(total_hoy, 2),
+        round(total_semana, 2),
+        round(total_mes, 2),
+        round(deuda, 2),
+        inicio_semana,
+        inicio_mes,
+        round(deuda_julio, 2),
+        round(deuda_agosto, 2),
+        round(deuda_septiembre, 2),
+        round(deuda_octubre, 2),
+        round(horas_esperadas_hasta_ayer, 2),
+        round(horas_trabajadas_hasta_ayer, 2),
+    )
+
+def actualizar_fila_en_sheet(fecha_fec, nueva_hora):
+    try:
+        filas = worksheet.get_all_values()
+        fecha_como_texto = f"'{fecha_fec}"
+
+        if not filas:
+            worksheet.append_row(["Fecha", "Horas"], value_input_option="USER_ENTERED")
+            worksheet.append_row([fecha_como_texto, float(nueva_hora)], value_input_option="USER_ENTERED")
+            return True
+
+        encontrado = False
+        for i, fila in enumerate(filas[1:], start=2):
+            if fila and limpiar_fecha(fila[0]) == fecha_fec:
+                worksheet.update_cell(i, 1, fecha_como_texto)
+                worksheet.update_cell(i, 2, float(nueva_hora))
+                encontrado = True
+                break
+
+        if not encontrado:
+            worksheet.append_row([fecha_como_texto, float(nueva_hora)], value_input_option="USER_ENTERED")
+
+        return True
+    except Exception as e:
+        st.error(f"Error al actualizar la hoja: {e}")
+        return False
+
+def generar_pie_chart(actual, objetivo, color_faltante="#3b82f6"):
+    fig, ax = plt.subplots(figsize=(2.2, 2.2))
+    fig.patch.set_facecolor("none")
+    ax.set_facecolor("none")
+
+    if actual >= objetivo:
+        exceso = actual - objetivo
+        tamaños = [objetivo, exceso]
+        colores = ["#334155", "#ec4899"]
+    else:
+        faltante = objetivo - actual
+        tamaños = [actual, faltante]
+        colores = ["#334155", color_faltante]
+
+    ax.pie(
+        tamaños,
+        colors=colores,
+        startangle=90,
+        wedgeprops=dict(width=0.4, edgecolor="none"),
+    )
+
+    ax.set(aspect="equal")
+    plt.tight_layout()
+    return fig
+
+# ------------------ INICIALIZACIÓN DE ESTADOS ------------------
+hoy = datetime.now()
+hoy_str = hoy.strftime("%d-%m-%Y")
+
+if "registros" not in st.session_state:
+    st.session_state["registros"] = obtener_datos_hoja()
+
+if "festivos_web" not in st.session_state:
+    st.session_state["festivos_web"] = set()
+
+if "cronometro_activo" not in st.session_state:
+    st.session_state["cronometro_activo"] = False
+
+if "tiempo_inicio" not in st.session_state:
+    st.session_state["tiempo_inicio"] = None
+
+if "segundos_acumulados" not in st.session_state:
+    st.session_state["segundos_acumulados"] = 0
+
+registros_actuales = st.session_state["registros"]
+
+segundos_totales_crono = st.session_state["segundos_acumulados"]
+if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
+    diferencia = datetime.now() - st.session_state["tiempo_inicio"]
+    segundos_totales_crono += int(diferencia.total_seconds())
+
+horas_cronometro_decimales = segundos_totales_crono / 3600.0
+
+(
+    tot_hoy,
+    tot_sem,
+    tot_mes,
+    deuda_horas,
+    inicio_sem_dt,
+    inicio_mes_dt,
+    deuda_julio,
+    deuda_agosto,
+    deuda_septiembre,
+    deuda_octubre,
+    horas_totales_obligatorio,
+    horas_totales_trabajadas,
+) = calcular_totales(registros_actuales, 0.0, st.session_state["festivos_web"])
+
+# ------------------ TÍTULO PRINCIPAL DE LA WEB ------------------
+st.title("Control horas work")
+st.markdown("---")
+
+# ------------------ DISEÑO GENERAL (2 COLUMNAS) ------------------
+col_izq, col_der = st.columns([1.1, 0.9])
+
+with col_izq:
+    # --- 1. CRONÓMETRO Y REGISTRO ---
+    st.markdown("### Cronómetro y Registro de Horas")
+    with st.container(border=True):
+        
+        placeholder_crono = st.empty()
+        placeholder_crono.markdown(f"### ⏱️ {formatear_cronometro_detallado(segundos_totales_crono)}")
+        
+        c_btn1, c_btn2, c_btn3 = st.columns(3)
+        with c_btn1:
+            if not st.session_state["cronometro_activo"]:
+                if st.button("Activar", use_container_width=True, type="primary"):
+                    st.session_state["cronometro_activo"] = True
+                    st.session_state["tiempo_inicio"] = datetime.now()
+                    st.rerun()
+            else:
+                if st.button("Pausar", use_container_width=True):
+                    st.session_state["segundos_acumulados"] = segundos_totales_crono
+                    st.session_state["cronometro_activo"] = False
+                    st.session_state["tiempo_inicio"] = None
+                    st.rerun()
+        with c_btn2:
+            if st.button("Resetear", use_container_width=True):
+                st.session_state["cronometro_activo"] = False
+                st.session_state["tiempo_inicio"] = None
+                st.session_state["segundos_acumulados"] = 0
+                st.rerun()
+        with c_btn3:
+            btn_registrar_cron = st.button("Registrar crono", use_container_width=True, type="secondary")
+
+        if btn_registrar_cron:
+            if horas_cronometro_decimales > 0:
+                fec = hoy_str
+                horas_a_sumar = round(horas_cronometro_decimales, 2)
+
+                if fec in st.session_state["registros"]:
+                    st.session_state["registros"][fec] += horas_a_sumar
+                else:
+                    st.session_state["registros"][fec] = horas_a_sumar
+
+                actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
+                
+                st.session_state["cronometro_activo"] = False
+                st.session_state["tiempo_inicio"] = None
+                st.session_state["segundos_acumulados"] = 0
+
+                st.success(f"¡Registradas {formatear_horas(horas_a_sumar)} al día de hoy con éxito!")
+                st.rerun()
+            else:
+                st.warning("El cronómetro está a 0; no hay tiempo que registrar.")
+
+        st.markdown("---")
+        st.write("**O ingresar horas manualmente:**")
+        col_reg1, col_reg2, col_reg3, col_reg4 = st.columns([1.2, 0.9, 0.9, 1.0])
+        with col_reg1:
+            input_fecha = st.text_input("Fecha (DD-MM-YYYY):", value=hoy_str)
+        with col_reg2:
+            input_horas = st.number_input("Horas:", min_value=0, value=0, step=1)
+        with col_reg3:
+            input_minutos = st.number_input("Minutos:", min_value=0, max_value=59, value=0, step=1)
+        with col_reg4:
+            st.write("")
+            st.write("")
+            btn_guardar = st.button("Registrar", use_container_width=True)
+
+        if btn_guardar:
+            horas_nuevas = round(input_horas + (input_minutos / 60), 2)
+            fec = limpiar_fecha(input_fecha)
+
+            if horas_nuevas > 0:
+                if fec in st.session_state["registros"]:
+                    st.session_state["registros"][fec] += horas_nuevas
+                else:
+                    st.session_state["registros"][fec] = horas_nuevas
+
+                actualizar_fila_en_sheet(fec, st.session_state["registros"][fec])
+                st.success("¡Horas manuales guardadas correctamente!")
+                st.rerun()
+            else:
+                st.warning("Introduce una cantidad de horas válida.")
+
+    st.markdown("---")
+
+    # --- 2. RESUMEN ACTUAL ---
+    st.markdown("### Resumen actual")
+    col1, col2, col3 = st.columns(3)
+
+    dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
+    mes_hoy_nombre = meses_espanol_lower[hoy.month]
+
+    # Tarjeta Hoy
+    with col1:
+        es_no_laborable = not es_dia_laborable(hoy, st.session_state["festivos_web"])
+        
+        if es_no_laborable:
+            base_comparativa_hoy = 4.0
+            horas_efectivas_hoy = max(tot_hoy, 4.0) if tot_hoy > 0 else 4.0
+            progreso_hoy = min(max(horas_efectivas_hoy / base_comparativa_hoy, 0.0), 1.0)
+            if tot_hoy > 4.0:
+                progreso_hoy = 1.0
+            texto_progreso = f"Día no laborable/Festivo: {int(max(tot_hoy / 4.0, 1.0) * 100)}%"
+        else:
+            progreso_hoy = min(max(tot_hoy / 4.0, 0.0), 1.0)
+            texto_progreso = f"Objetivo diario: {int(progreso_hoy * 100)}%"
+
+        st.progress(progreso_hoy, text=texto_progreso)
+
+        with st.container(border=True):
+            st.metric("Hoy", formatear_horas(tot_hoy))
+            st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
+
+        valor_pie_hoy = max(tot_hoy, 4.0) if es_no_laborable else tot_hoy
+        fig_hoy = generar_pie_chart(valor_pie_hoy, 4.0, color_faltante="#3b82f6")
+        st.pyplot(fig_hoy, use_container_width=True)
+
+    # Tarjeta Semana
+    with col2:
+        progreso_sem = min(max(tot_sem / 23.0, 0.0), 1.0)
+        st.progress(progreso_sem, text=f"Objetivo semanal: {int(progreso_sem * 100)}%")
+
+        with st.container(border=True):
+            st.metric("Semana", formatear_horas(tot_sem))
+            dia_sem_nombre = dias_semana_lower[inicio_sem_dt.weekday()]
+            mes_sem_nombre = meses_espanol_lower[inicio_sem_dt.month]
+            st.caption(f"Contando desde el {dia_sem_nombre} {inicio_sem_dt.day} de {mes_sem_nombre}")
+
+            with st.popover("detalles"):
+                st.markdown("**Desglose de esta semana:**")
+                curr = inicio_sem_dt
+                while curr <= hoy:
+                    f_str = curr.strftime("%d-%m-%Y")
+                    h_dia = registros_actuales.get(f_str, 0.0)
+                    d_nombre = dias_semana_lower[curr.weekday()].replace(" - ", "")
+                    st.write(f"• **{d_nombre.capitalize()} {curr.day}:** {formatear_horas(h_dia)}")
+                    curr += timedelta(days=1)
+
+        fig_sem = generar_pie_chart(tot_sem, 23.0, color_faltante="#3b82f6")
+        st.pyplot(fig_sem, use_container_width=True)
+
+    # Tarjeta Mes
+    with col3:
+        progreso_mes = min(max(tot_mes / 93.0, 0.0), 1.0)
+        st.progress(progreso_mes, text=f"Objetivo mensual: {int(progreso_mes * 100)}%")
+
+        with st.container(border=True):
+            st.metric("Mes", formatear_horas(tot_mes))
+            dia_inicio_mes_nombre = dias_semana_lower[inicio_mes_dt.weekday()]
+            mes_mes_nombre = meses_espanol_lower[inicio_mes_dt.month]
+            st.caption(f"Contando desde el {dia_inicio_mes_nombre} 1 de {mes_mes_nombre}")
+
+            with st.popover("detalles"):
+                st.markdown(f"**Semanas de {meses_espanol[hoy.month]}:**")
+                curr = inicio_mes_dt
+                semana_num = 1
+                while curr <= hoy:
+                    dias_hasta_domingo = (6 - curr.weekday()) % 7
+                    fin_semana_actual = curr + timedelta(days=dias_hasta_domingo)
+                    if fin_semana_actual > hoy:
+                        fin_semana_actual = hoy
+
+                    horas_semana_bloque = 0.0
+                    temp = curr
+                    while temp <= fin_semana_actual:
+                        h_val = registros_actuales.get(temp.strftime("%d-%m-%Y"), 0.0)
+                        horas_semana_bloque += h_val
+                        temp += timedelta(days=1)
+
+                    st.write(
+                        f"• **Semana {semana_num}** ({curr.day}/{curr.month} - "
+                        f"{fin_semana_actual.day}/{fin_semana_actual.month}): "
+                        f"**{formatear_horas(horas_semana_bloque)}**"
+                    )
+
+                    curr = fin_semana_actual + timedelta(days=1)
+                    semana_num += 1
+
+        fig_mes = generar_pie_chart(tot_mes, 93.0, color_faltante="#3b82f6")
+        st.pyplot(fig_mes, use_container_width=True)
+
+with col_der:
+    # --- 3. APARTADO DE DEUDA ---
+    st.markdown("### Horas a recuperar")
+
+    if horas_totales_obligatorio > 0:
+        porcentaje_progreso_deuda = min(
+            max(horas_totales_trabajadas / horas_totales_obligatorio, 0.0), 1.0
+        )
+    else:
+        porcentaje_progreso_deuda = 0.0
+
+    st.progress(
+        porcentaje_progreso_deuda,
+        text=f"Progreso global de horas trabajadas: {int(porcentaje_progreso_deuda * 100)}% (Trabajadas: {formatear_horas(horas_totales_trabajadas)} / Obligatorias: {formatear_horas(horas_totales_obligatorio)})",
+    )
+
+    with st.container(border=True):
+        st.metric("Total de horas pendientes de recuperar", formatear_horas(deuda_horas))
+        st.caption(
+            "Cálculo basado en objetivo de 93h/mes distribuido por días laborables desde el 22 de Julio hasta ayer (excluyendo festivos y fines de semana)."
+        )
+
+        with st.popover("detalles de deuda"):
+            st.markdown("**Deuda acumulada por mes (hasta ayer):**")
+            st.write(f"• **Julio (desde 22):** {formatear_horas(deuda_julio)}")
+            st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
+            st.write(f"• **Septiembre:** {formatear_horas(deuda_septiembre)}")
+            st.write(f"• **Octubre:** {formatear_horas(deuda_octubre)}")
+
+    st.markdown("---")
+
+    # --- 4. TABLA DE HISTORIAL Y GESTIÓN DE FESTIVOS ---
+    st.subheader("Historial de Horas y Control de Festivos")
+
+    if registros_actuales:
+        lista_datos = [
+            {"Fecha": f, "Horas": h} for f, h in registros_actuales.items()
+        ]
+        df_global = pd.DataFrame(lista_datos)
+        df_global["Fecha_dt"] = pd.to_datetime(
+            df_global["Fecha"], format="%d-%m-%Y", errors="coerce"
+        )
+
+        df_global["Mes"] = df_global["Fecha_dt"].apply(
+            lambda x: (
+                f"{meses_espanol[x.month]} {x.year}"
+                if pd.notnull(x)
+                else "Desconocido"
+            )
+        )
+
+        df_global_desc = df_global.sort_values(by="Fecha_dt", ascending=False)
+        meses_disponibles = [m for m in df_global_desc["Mes"].unique()]
+        df_global_asc = df_global.sort_values(by="Fecha_dt", ascending=True)
+
+        if meses_disponibles:
+            pestañas = st.tabs(meses_disponibles)
+
+            for i, mes_nombre in enumerate(meses_disponibles):
+                with pestañas[i]:
+                    df_mes = df_global_asc[df_global_asc["Mes"] == mes_nombre][
+                        ["Fecha", "Horas"]
+                    ].reset_index(drop=True)
+
+                    def es_festivo_fila(fec_str):
+                        try:
+                            dt = datetime.strptime(fec_str, "%d-%m-%Y")
+                            return not es_dia_laborable(dt, st.session_state["festivos_web"])
+                        except:
+                            return False
+
+                    df_mes["Festivo / No laborable"] = df_mes["Fecha"].apply(es_festivo_fila)
+
+                    total_horas_mes_actual = df_mes["Horas"].sum()
+                    st.info(f"Total horas trabajadas en {mes_nombre}: {formatear_horas(total_horas_mes_actual)}")
+                    st.write(f"Gestiona los festivos de **{mes_nombre}**:")
+
+                    df_editado = st.data_editor(
+                        df_mes,
+                        column_config={
+                            "Fecha": st.column_config.TextColumn("Fecha", disabled=True),
+                            "Horas": st.column_config.NumberColumn("Horas", disabled=True),
+                            "Festivo / No laborable": st.column_config.CheckboxColumn(
+                                "Es Festivo / No Laborable",
+                                help="Marca o desmarca si este día cuenta como festivo/no laborable.",
+                                default=False,
+                            ),
+                        },
+                        hide_index=True,
+                        key=f"editor_festivos_{i}"
+                    )
+
+                    # Detectar cambios en los checkboxes de la tabla interactiva
+                    cambios_detectados = False
+                    for idx, row in df_editado.iterrows():
+                        fec_row = row["Fecha"]
+                        es_festivo_check = row["Festivo / No laborable"]
+                        dt_row = datetime.strptime(fec_row, "%d-%m-%Y")
+                        
+                        # Comprobar si difiere del estado base en Google Sheets / fines de semana
+                        es_base_festivo = not es_dia_laborable(dt_row, set())
+                        
+                        if es_festivo_check and not es_base_festivo:
+                            if fec_row not in st.session_state["festivos_web"]:
+                                st.session_state["festivos_web"].add(fec_row)
+                                cambios_detectados = True
+                        elif not es_festivo_check and es_base_festivo:
+                            if fec_row in st.session_state["festivos_web"]:
+                                st.session_state["festivos_web"].remove(fec_row)
+                                cambios_detectados = True
+
+                    if cambios_detectados:
+                        st.rerun()
