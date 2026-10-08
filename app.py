@@ -167,7 +167,7 @@ def obtener_datos_hoja():
         except ValueError:
             horas = 0.0
 
-        # Determinar si es laborable: por defecto L-V laborable (True), S-D no laborable (False)
+        # Forzar fin de semana (S-D) como no laborable por defecto (False) y L-V como laborable (True)
         try:
             dt_temp = datetime.strptime(fecha, "%d-%m-%Y")
             def_lab = dt_temp.weekday() < 5
@@ -290,6 +290,7 @@ def calcular_totales(diccionario_registros, laboral_dict, horas_cronometro_extra
         def_lab = curr.weekday() < 5
         es_lab = laboral_dict.get(f_str, def_lab)
         
+        # El cálculo solo computa los días estrictamente laborables
         if es_lab:
             dias_lab_mes = obtener_dias_laborables_mes(curr.year, curr.month, laboral_dict)
             horas_esperadas_hasta_ayer += 93.0 / dias_lab_mes
@@ -353,7 +354,6 @@ def guardar_todo_en_sheet(diccionario_registros, diccionario_laboral):
         worksheet.clear()
         datos_para_guardar = [["Fecha", "Horas", "Laboral"]]
         
-        # Ordenar estrictamente por fecha cronológica antes de volcar al Sheet
         fechas_ordenadas = sorted(
             diccionario_registros.keys(),
             key=lambda x: datetime.strptime(x, "%d-%m-%Y")
@@ -363,7 +363,6 @@ def guardar_todo_en_sheet(diccionario_registros, diccionario_laboral):
             fecha_como_texto = f"'{fec}"
             val_h = float(diccionario_registros[fec])
             
-            # Obtener estado laboral asegurando fin de semana por defecto falso
             dt_temp = datetime.strptime(fec, "%d-%m-%Y")
             def_lab = dt_temp.weekday() < 5
             val_l = str(diccionario_laboral.get(fec, def_lab))
@@ -669,7 +668,7 @@ with col_der:
 
     with st.container(border=True):
         st.metric("Total de horas pendientes de recuperar", formatear_horas(deuda_horas))
-        st.caption("Cálculo basado en objetivo de 93h/mes (excluyendo días no laborables marcados) desde el 22 de Julio. Las horas trabajadas antes de esa fecha y en días no laborables restan deuda.")
+        st.caption("Cálculo basado en objetivo de 93h/mes (excluyendo días no laborables y fines de semana) desde el 22 de Julio. Las horas trabajadas en días laborables restan deuda.")
 
         with st.popover("detalles de deuda"):
             st.markdown("**Deuda acumulada por mes (hasta ayer):**")
@@ -680,7 +679,7 @@ with col_der:
 
     st.markdown("---")
 
-    # --- 4. TABLA DE HISTORIAL Y EDICIÓN ORDENADA CRONOLÓGICAMENTE ---
+    # --- 4. TABLA DE HISTORIAL Y EDICIÓN ORDENADA EN ORDEN INVERSO (MES ACTUAL PRIMERO) ---
     st.subheader("Historial de Meses")
 
     lista_datos = []
@@ -701,7 +700,7 @@ with col_der:
         df_global["Fecha_dt"] = pd.Series(dtype="datetime64[ns]")
         df_global["Laboral"] = pd.Series(dtype="bool")
 
-    # ORDEN CRONOLÓGICO ESTRICTO (tanto por año/mes como por día)
+    # ORDEN CRONOLÓGICO INTERNO (para operar de forma ordenada por día dentro del mes)
     df_global_asc = df_global.sort_values(by="Fecha_dt", ascending=True).copy()
 
     if not df_global_asc.empty:
@@ -712,8 +711,8 @@ with col_der:
             lambda x: f"{meses_espanol[x.month]} {x.year}" if pd.notnull(x) else "Desconocido"
         )
         
-        # Obtener la lista única de meses ordenada cronológicamente (usando Mes_ID para asegurar orden de meses correcto)
-        meses_unicos_df = df_global_asc.sort_values(by="Fecha_dt")[["Mes_ID", "Mes_Nombre"]].drop_duplicates()
+        # Obtener la lista única de meses ordenados en ORDEN INVERSO (el mes más reciente / actual primero)
+        meses_unicos_df = df_global_asc.sort_values(by="Fecha_dt", ascending=False)[["Mes_ID", "Mes_Nombre"]].drop_duplicates()
         meses_unicos = meses_unicos_df["Mes_Nombre"].tolist()
     else:
         meses_unicos = []
@@ -761,7 +760,7 @@ with col_der:
                     st.session_state["registros"] = nuevo_diccionario_reg
                     st.session_state["laboral"] = nuevo_diccionario_lab
 
-                    st.success("Se han guardado los cambios y ordenado cronológicamente.")
+                    st.success("Se han guardado los cambios correctamente.")
                     st.rerun()
     else:
         st.info("No hay registros todavía.")
