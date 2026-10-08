@@ -67,7 +67,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ------------------ CONEXIÓN CON GOOGLE SHEETS (CORREGIDA) ------------------
+# ------------------ CONEXIÓN CON GOOGLE SHEETS ------------------
 @st.cache_resource
 def conectar_gspread():
     credenciales_dict = dict(st.secrets["gcp_service_account"])
@@ -139,7 +139,6 @@ def formato_humano_a_fecha(humano_str):
     return humano_str
 
 def obtener_datos_hoja():
-    """Lectura robusta por filas (evita fallos si los encabezados varían)"""
     try:
         filas = worksheet.get_all_values()
     except Exception:
@@ -149,7 +148,6 @@ def obtener_datos_hoja():
     if not filas or len(filas) <= 1:
         return diccionario_registros
 
-    # Omitimos la primera fila (cabecera)
     for fila in filas[1:]:
         if not fila or len(fila) < 2:
             continue
@@ -231,7 +229,7 @@ def obtener_dias_laborables_mes(anio, mes):
         curr += timedelta(days=1)
     return laborables
 
-def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
+def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos_set=set()):
     hoy_calc = datetime.now()
     hoy_sin_hora = hoy_calc.replace(hour=0, minute=0, second=0, microsecond=0)
     hoy_str_calc = hoy_calc.strftime("%d-%m-%Y")
@@ -263,26 +261,26 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
     total_mes += horas_cronometro_extra
 
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
-    inicio_deuda = datetime(2026, 7, 16)
+    inicio_deuda = datetime(2026, 7, 22) # Actualizado al 22 de julio
 
+    # 1. Calcular horas esperadas (obligatorias) a partir del 22 de julio hasta ayer (excluyendo fines de semana y festivos)
     horas_esperadas_hasta_ayer = 0.0
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
-        if curr.weekday() < 5:
+        f_str = curr.strftime("%d-%m-%Y")
+        es_fin_de_semana = curr.weekday() >= 5
+        es_festivo = f_str in festivos_set
+        
+        if not es_fin_de_semana and not es_festivo:
             dias_lab_mes = obtener_dias_laborables_mes(curr.year, curr.month)
             horas_esperadas_hasta_ayer += 93.0 / dias_lab_mes
         curr += timedelta(days=1)
 
-    horas_trabajadas_hasta_ayer = 0.0
-    for fecha_str, horas in diccionario_registros.items():
-        try:
-            fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
-            if inicio_deuda <= fecha_dt <= ayer_sin_hora:
-                horas_trabajadas_hasta_ayer += horas
-        except ValueError:
-            pass
+    # 2. Calcular horas trabajadas en TODO el histórico (incluyendo antes del 22 de julio para descontarlas de la deuda inicial)
+    horas_totales_trabajadas_historico = sum(diccionario_registros.values())
 
-    deuda = horas_esperadas_hasta_ayer - horas_trabajadas_hasta_ayer
+    # La deuda total es lo obligatorio esperado menos todo lo que se ha trabajado en total (lo cual descuenta automáticamente lo hecho antes del 22 de julio)
+    deuda = horas_esperadas_hasta_ayer - horas_totales_trabajadas_historico
 
     def calcular_deuda_mes(inicio_mes_dt, fin_mes_dt):
         d_lab = 0.0
@@ -290,15 +288,16 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
         c = inicio_mes_dt
         limite = min(fin_mes_dt, ayer_sin_hora)
         while c <= limite:
-            if c >= datetime(2026, 7, 16):
-                if c.weekday() < 5:
+            if c >= datetime(2026, 7, 22):
+                f_str = c.strftime("%d-%m-%Y")
+                if c.weekday() < 5 and f_str not in festivos_set:
                     dias_lab_mes = obtener_dias_laborables_mes(c.year, c.month)
                     d_lab += 93.0 / dias_lab_mes
-                h_trab += diccionario_registros.get(c.strftime("%d-%m-%Y"), 0.0)
+            h_trab += diccionario_registros.get(c.strftime("%d-%m-%Y"), 0.0)
             c += timedelta(days=1)
         return d_lab - h_trab
 
-    deuda_julio = calcular_deuda_mes(datetime(2026, 7, 16), datetime(2026, 7, 31))
+    deuda_julio = calcular_deuda_mes(datetime(2026, 7, 22), datetime(2026, 7, 31))
     deuda_agosto = calcular_deuda_mes(datetime(2026, 8, 1), datetime(2026, 8, 31))
     deuda_septiembre = calcular_deuda_mes(datetime(2026, 9, 1), datetime(2026, 9, 30))
     deuda_octubre = calcular_deuda_mes(datetime(2026, 10, 1), datetime(2026, 10, 31))
@@ -317,7 +316,7 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0):
         round(deuda_septiembre, 2),
         round(deuda_octubre, 2),
         round(horas_esperadas_hasta_ayer, 2),
-        round(horas_trabajadas_hasta_ayer, 2),
+        round(horas_totales_trabajadas_historico, 2),
     )
 
 def actualizar_fila_en_sheet(fecha_fec, nueva_hora):
@@ -392,6 +391,20 @@ hoy_str = hoy.strftime("%d-%m-%Y")
 if "registros" not in st.session_state:
     st.session_state["registros"] = obtener_datos_hoja()
 
+# Lista inicial por defecto de festivos de España y Granada (ejemplos adaptables)
+if "festivos" not in st.session_state:
+    st.session_state["festivos"] = [
+        "15-08-2026", # Asunción de la Virgen
+        "12-10-2026", # Fiesta Nacional de España
+        "01-11-2026", # Todos los Santos
+        "02-11-2026", # Lunes posterior a Todos los Santos
+        "06-12-2026", # Día de la Constitución
+        "08-12-2026", # La Inmaculada
+        "25-12-2026", # Navidad
+        "02-01-2027", # Toma de Granada
+        "06-01-2027", # Reyes Magos
+    ]
+
 if "cronometro_activo" not in st.session_state:
     st.session_state["cronometro_activo"] = False
 
@@ -402,6 +415,7 @@ if "segundos_acumulados" not in st.session_state:
     st.session_state["segundos_acumulados"] = 0
 
 registros_actuales = st.session_state["registros"]
+festivos_set = set(st.session_state["festivos"])
 
 # Calcular segundos actuales del cronómetro en tiempo real
 segundos_totales_crono = st.session_state["segundos_acumulados"]
@@ -424,12 +438,11 @@ horas_cronometro_decimales = segundos_totales_crono / 3600.0
     deuda_octubre,
     horas_totales_obligatorio,
     horas_totales_trabajadas,
-) = calcular_totales(registros_actuales, 0.0)
+) = calcular_totales(registros_actuales, 0.0, festivos_set)
 
 # ------------------ TÍTULO PRINCIPAL DE LA WEB ------------------
 st.title("Control horas work")
 
-# Botón rápido para forzar la recarga de datos desde Google Sheets si sale vacío
 if st.button("🔄 Recargar datos de Google Sheets"):
     st.session_state["registros"] = obtener_datos_hoja()
     st.rerun()
@@ -532,14 +545,15 @@ with col_izq:
     # Tarjeta Hoy
     with col1:
         es_fin_de_semana = hoy.weekday() >= 5
+        es_festivo_hoy = hoy_str in festivos_set
         
-        if es_fin_de_semana:
+        if es_fin_de_semana or es_festivo_hoy:
             base_comparativa_hoy = 4.0
             horas_efectivas_hoy = max(tot_hoy, 4.0) if tot_hoy > 0 else 4.0
             progreso_hoy = min(max(horas_efectivas_hoy / base_comparativa_hoy, 0.0), 1.0)
             if tot_hoy > 4.0:
                 progreso_hoy = 1.0
-            texto_progreso = f"Fin de semana: {int(max(tot_hoy / 4.0, 1.0) * 100)}%"
+            texto_progreso = f"Día no laborable: {int(max(tot_hoy / 4.0, 1.0) * 100)}%"
         else:
             progreso_hoy = min(max(tot_hoy / 4.0, 0.0), 1.0)
             texto_progreso = f"Objetivo diario: {int(progreso_hoy * 100)}%"
@@ -550,7 +564,7 @@ with col_izq:
             st.metric("Hoy", formatear_horas(tot_hoy))
             st.caption(f"{dia_hoy_nombre} {hoy.day} de {mes_hoy_nombre}")
 
-        valor_pie_hoy = max(tot_hoy, 4.0) if es_fin_de_semana else tot_hoy
+        valor_pie_hoy = max(tot_hoy, 4.0) if (es_fin_de_semana or es_festivo_hoy) else tot_hoy
         fig_hoy = generar_pie_chart(valor_pie_hoy, 4.0, color_faltante="#3b82f6")
         st.pyplot(fig_hoy, use_container_width=True)
 
@@ -634,18 +648,44 @@ with col_der:
 
     with st.container(border=True):
         st.metric("Total de horas pendientes de recuperar", formatear_horas(deuda_horas))
-        st.caption("Cálculo basado en objetivo de 93h/mes distribuido por días laborables desde el 16 de Julio hasta ayer.")
+        st.caption("Cálculo basado en objetivo de 93h/mes (excluyendo fines de semana y festivos) desde el 22 de Julio. Las horas trabajadas antes de esa fecha y en días no laborables restan deuda.")
 
         with st.popover("detalles de deuda"):
             st.markdown("**Deuda acumulada por mes (hasta ayer):**")
-            st.write(f"• **Julio (desde 16):** {formatear_horas(deuda_julio)}")
+            st.write(f"• **Julio (desde 22):** {formatear_horas(deuda_julio)}")
             st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
             st.write(f"• **Septiembre:** {formatear_horas(deuda_septiembre)}")
             st.write(f"• **Octubre:** {formatear_horas(deuda_octubre)}")
 
     st.markdown("---")
 
-    # --- 4. TABLA DE HISTORIAL Y EDICIÓN ---
+    # --- 4. CALENDARIO DE FESTIVOS (ESPAÑA / GRANADA) ---
+    st.subheader("📅 Calendario de Festivos (España y Granada)")
+    st.caption("Los festivos añadidos aquí se comportan como fines de semana: no generan obligación de horas, pero si trabajas en ellos, las horas se restarán de tu deuda.")
+
+    df_festivos = pd.DataFrame({"Fecha Festiva (DD-MM-YYYY)": sorted(st.session_state["festivos"])})
+    df_festivos_editado = st.data_editor(
+        df_festivos,
+        num_rows="dynamic",
+        key="editor_festivos",
+        use_container_width=True,
+        height=180
+    )
+
+    # Actualizar la lista de festivos si el usuario los modifica
+    nuevos_festivos = []
+    for val in df_festivos_editado["Fecha Festiva (DD-MM-YYYY)"]:
+        f_limpia = limpiar_fecha(val)
+        if f_limpia and f_limpia not in nuevos_festivos:
+            nuevos_festivos.append(f_limpia)
+    
+    if set(nuevos_festivos) != set(st.session_state["festivos"]):
+        st.session_state["festivos"] = nuevos_festivos
+        st.rerun()
+
+    st.markdown("---")
+
+    # --- 5. TABLA DE HISTORIAL Y EDICIÓN ---
     st.subheader("Horas workeadas anteriormente")
 
     if registros_actuales:
