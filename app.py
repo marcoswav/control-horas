@@ -235,8 +235,8 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos
     hoy_str_calc = hoy_calc.strftime("%d-%m-%Y")
 
     total_hoy = diccionario_registros.get(hoy_str_calc, 0.0) + horas_cronometro_extra
+    total_sem = 0.0
     total_mes = 0.0
-    total_semana = 0.0
 
     if hoy_calc.weekday() == 0:
         inicio_semana = hoy_sin_hora
@@ -251,13 +251,13 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos
         try:
             fecha_dt = datetime.strptime(fecha_str, "%d-%m-%Y")
             if inicio_semana <= fecha_dt <= fin_semana:
-                total_semana += horas
+                total_sem += horas
             if inicio_mes <= fecha_dt <= fin_mes:
                 total_mes += horas
         except ValueError:
             pass
 
-    total_semana += horas_cronometro_extra
+    total_sem += horas_cronometro_extra
     total_mes += horas_cronometro_extra
 
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
@@ -297,8 +297,15 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos
     deuda_agosto = calcular_deuda_mes(datetime(2026, 8, 1), datetime(2026, 8, 31))
     deuda_septiembre = calcular_deuda_mes(datetime(2026, 9, 1), datetime(2026, 9, 30))
     deuda_octubre = calcular_deuda_mes(datetime(2026, 10, 1), datetime(2026, 10, 31))
-    deuda_noviembre = calcular_deuda_mes(datetime(2026, 11, 1), datetime(2026, 11, 30))
-    deuda_diciembre = calcular_deuda_mes(datetime(2026, 12, 1), datetime(2026, 12, 31))
+
+    # Cálculo aproximado de horas obligatorias totales históricas
+    horas_totales_obligatorio = 0.0
+    c_tot = inicio_deuda
+    while c_tot <= ayer_sin_hora:
+        if c_tot.weekday() < 5 and c_tot.strftime("%d-%m-%Y") not in festivos_set:
+            dias_lab_mes = obtener_dias_laborables_mes(c_tot.year, c_tot.month)
+            horas_totales_obligatorio += 93.0 / dias_lab_mes
+        c_tot += timedelta(days=1)
 
     return (
         round(total_hoy, 2),
@@ -530,7 +537,7 @@ with col_izq:
     st.markdown("---")
 
     # --- 2. RESUMEN ACTUAL ---
-    st.markdown("### rezumen actual")
+    st.markdown("### Resumen actual")
     col1, col2, col3 = st.columns(3)
 
     dia_hoy_nombre = dias_semana_lower[hoy.weekday()]
@@ -681,7 +688,6 @@ with col_der:
     with pestañas[0]:
         st.caption("Los festivos añadidos aquí se comportan como fines de semana: no generan obligación de horas, pero si trabajas en ellos, las horas se restarán de tu deuda.")
         
-        # Ordenación segura de festivos ignorando valores vacíos o mal formateados temporalmente
         def parsear_fecha_segura(fec_str):
             f_limpia = limpiar_fecha(fec_str)
             try:
@@ -704,7 +710,6 @@ with col_der:
         for val in df_festivos_editado["Fecha Festiva (DD-MM-YYYY)"]:
             f_limpia = limpiar_fecha(val)
             if f_limpia and f_limpia not in nuevos_festivos:
-                # Validar que tenga el formato correcto antes de guardarlo
                 try:
                     datetime.strptime(f_limpia, "%d-%m-%Y")
                     nuevos_festivos.append(f_limpia)
