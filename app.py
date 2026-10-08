@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 import re
 import gspread
-import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
@@ -12,7 +11,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# ------------------ ESTILOS CSS ------------------
+# ------------------ ESTILOS CSS Y ANIMACIONES ------------------
 st.markdown(
     """
     <style>
@@ -57,7 +56,7 @@ FESTIVOS_GRANADA = {
 
 def es_dia_laborable_por_defecto(dt_obj):
     """Fuerza FALSE para sábados, domingos y festivos de Granada/España."""
-    if dt_obj.weekday() >= 5:  # Sábado (5) o Domingo (6)
+    if dt_obj.weekday() >= 5:  # 5 = Sábado, 6 = Domingo
         return False
     fecha_fmt = dt_obj.strftime("%d-%m-%Y")
     if fecha_fmt in FESTIVOS_GRANADA:
@@ -147,11 +146,18 @@ def obtener_datos_hoja():
             def_lab = True
 
         raw_laboral = fila[2] if len(fila) > 2 else ""
-        # Si la fecha es fin de semana/festivo, aseguramos False salvo que explícitamente se guardara otro valor
         if raw_laboral != "":
             es_lab = str(raw_laboral).strip().lower() in ["true", "1", "yes", "si", "sí"]
         else:
             es_lab = def_lab
+
+        # REGLA ESTRICTA: Sábados y domingos siempre no laborables por defecto
+        try:
+            dt_check = datetime.strptime(fecha, "%d-%m-%Y")
+            if dt_check.weekday() >= 5 and raw_laboral == "":
+                es_lab = False
+        except Exception:
+            pass
 
         diccionario_registros[fecha] = diccionario_registros.get(fecha, 0.0) + horas
         diccionario_laboral[fecha] = es_lab
@@ -241,7 +247,6 @@ def calcular_totales(diccionario_registros, laboral_dict, horas_cronometro_extra
             horas_totales_obligatorio += objetivo_diario
             deuda_acumulada += (objetivo_diario - h_trabajadas)
         else:
-            # Sábados, domingos y festivos no suman objetivo y restan deuda si se trabaja
             deuda_acumulada -= h_trabajadas
 
         curr += timedelta(days=1)
@@ -288,7 +293,6 @@ def guardar_todo_en_sheet(diccionario_registros, diccionario_laboral):
         for fec in fechas_ord:
             dt_temp = datetime.strptime(fec, "%d-%m-%Y")
             def_lab = es_dia_laborable_por_defecto(dt_temp)
-            # Garantiza que fines de semana/festivos vacíos o automáticos sean False
             val_l = str(diccionario_laboral.get(fec, def_lab))
             datos_guardar.append([f"'{fec}", float(diccionario_registros[fec]), val_l])
 
@@ -372,6 +376,15 @@ with col_der:
         st.metric("Deuda pendiente total", formatear_horas(deuda_horas))
         st.caption("Sábados, domingos y festivos en Granada/España son no laborables (False). No suman deuda y cualquier hora trabajada se descuenta.")
 
+        # --- BARRAS ANIMADAS RESTAURADAS ---
+        pct_recuperado = 0.0
+        if horas_totales_obligatorio > 0:
+            pct_recuperado = min(1.0, max(0.0, horas_totales_trabajadas / horas_totales_obligatorio))
+        
+        st.write("**Progreso global de horas recuperadas:**")
+        st.progress(pct_recuperado)
+        st.caption(f"{round(pct_recuperado * 100, 1)}% completado")
+
         with st.popover("Detalles de deuda"):
             st.write(f"• **Julio (desde 22):** {formatear_horas(deuda_julio)}")
             st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
@@ -434,33 +447,3 @@ with col_der:
                         st.session_state["laboral"] = nuevo_lab
                         st.success("Cambios guardados.")
                         st.rerun()
-
-# ------------------ GRÁFICOS WEB ------------------
-st.markdown("---")
-st.subheader("📊 Gráficos y Estadísticas")
-
-if not df_global.empty:
-    col_g1, col_g2 = st.columns(2)
-
-    # 1. Gráfico de Horas trabajadas por mes
-    with col_g1:
-        st.markdown("#### Horas trabajadas por mes")
-        df_meses = df_global_asc.groupby("Mes_Nombre", sort=False)["Horas"].sum().reset_index()
-        fig1, ax1 = plt.subplots(figsize=(6, 4))
-        ax1.bar(df_meses["Mes_Nombre"], df_meses["Horas"], color="#3b82f6")
-        ax1.set_ylabel("Horas")
-        plt.xticks(rotation=45, ha="right")
-        plt.tight_layout()
-        st.pyplot(fig1)
-
-    # 2. Gráfico de comparación Deuda vs Trabajadas
-    with col_g2:
-        st.markdown("#### Balance global de horas")
-        fig2, ax2 = plt.subplots(figsize=(6, 4))
-        categorias = ["Trabajadas", "Obligatorias", "Deuda Pendiente"]
-        valores = [horas_totales_trabajadas, horas_totales_obligatorio, max(0, deuda_horas)]
-        colores = ["#22c55e", "#64748b", "#ef4444"]
-        ax2.bar(categorias, valores, color=colores)
-        ax2.set_ylabel("Horas")
-        plt.tight_layout()
-        st.pyplot(fig2)
