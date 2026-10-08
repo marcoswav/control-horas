@@ -295,8 +295,8 @@ def calcular_totales(diccionario_registros, laboral_dict, horas_cronometro_extra
             horas_esperadas_hasta_ayer += 93.0 / dias_lab_mes
         curr += timedelta(days=1)
 
-    horas_totales_trabajadas_historico = sum(diccionario_registros.values())
-    deuda = horas_esperadas_hasta_ayer - horas_totales_trabajadas_historico
+    horas_totales_trabajadas = sum(diccionario_registros.values())
+    deuda = horas_esperadas_hasta_ayer - horas_totales_trabajadas
 
     def calcular_deuda_mes(inicio_mes_dt, fin_mes_dt):
         d_lab = 0.0
@@ -377,7 +377,6 @@ def guardar_todo_en_sheet(diccionario_registros, diccionario_laboral):
         return False
 
 def actualizar_fila_en_sheet(fecha_fec, nueva_hora, es_laboral):
-    # Recalculamos y guardamos todo ordenado cronológicamente para mantener el Sheet siempre ordenado
     reg_actual, lab_actual = obtener_datos_hoja()
     reg_actual[fecha_fec] = nueva_hora
     lab_actual[fecha_fec] = es_laboral
