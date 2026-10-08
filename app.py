@@ -156,7 +156,7 @@ def obtener_datos_hoja():
         
         fecha_raw = fila[0]
         raw_horas = fila[1]
-        raw_laboral = fila[2] if len(fila) > 2 else "True"
+        raw_laboral = fila[2] if len(fila) > 2 else ""
         
         fecha = limpiar_fecha(fecha_raw)
         if not fecha or fecha.lower() == "fecha":
@@ -167,15 +167,17 @@ def obtener_datos_hoja():
         except ValueError:
             horas = 0.0
 
-        # Determinar si es laborable según el checkbox guardado (por defecto L-V laborable, S-D no)
+        # Determinar si es laborable: por defecto L-V laborable (True), S-D no laborable (False)
+        try:
+            dt_temp = datetime.strptime(fecha, "%d-%m-%Y")
+            def_lab = dt_temp.weekday() < 5
+        except:
+            def_lab = True
+
         if raw_laboral != "":
             es_lab = str(raw_laboral).strip().lower() in ["true", "1", "yes", "si", "sí"]
         else:
-            try:
-                dt_temp = datetime.strptime(fecha, "%d-%m-%Y")
-                es_lab = dt_temp.weekday() < 5
-            except:
-                es_lab = True
+            es_lab = def_lab
 
         if fecha in diccionario_registros:
             diccionario_registros[fecha] += horas
@@ -240,13 +242,10 @@ def obtener_dias_laborables_mes(anio, mes, laboral_dict):
     curr = primero
     while curr < siguiente:
         f_str = curr.strftime("%d-%m-%Y")
-        # Si está explícitamente definido en el diccionario, usarlo; si no, por defecto L-V
-        if f_str in laboral_dict:
-            if laboral_dict[f_str]:
-                laborables += 1
-        else:
-            if curr.weekday() < 5:
-                laborables += 1
+        def_lab = curr.weekday() < 5
+        es_lab = laboral_dict.get(f_str, def_lab)
+        if es_lab:
+            laborables += 1
         curr += timedelta(days=1)
     return max(laborables, 1)
 
@@ -288,11 +287,8 @@ def calcular_totales(diccionario_registros, laboral_dict, horas_cronometro_extra
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
         f_str = curr.strftime("%d-%m-%Y")
-        # Comprobar si es laborable según el diccionario o por defecto L-V
-        if f_str in laboral_dict:
-            es_lab = laboral_dict[f_str]
-        else:
-            es_lab = curr.weekday() < 5
+        def_lab = curr.weekday() < 5
+        es_lab = laboral_dict.get(f_str, def_lab)
         
         if es_lab:
             dias_lab_mes = obtener_dias_laborables_mes(curr.year, curr.month, laboral_dict)
@@ -310,10 +306,8 @@ def calcular_totales(diccionario_registros, laboral_dict, horas_cronometro_extra
         while c <= limite:
             if c >= datetime(2026, 7, 22):
                 f_str = c.strftime("%d-%m-%Y")
-                if f_str in laboral_dict:
-                    es_lab = laboral_dict[f_str]
-                else:
-                    es_lab = c.weekday() < 5
+                def_lab = c.weekday() < 5
+                es_lab = laboral_dict.get(f_str, def_lab)
                 
                 if es_lab:
                     dias_lab_mes = obtener_dias_laborables_mes(c.year, c.month, laboral_dict)
@@ -331,10 +325,8 @@ def calcular_totales(diccionario_registros, laboral_dict, horas_cronometro_extra
     c_tot = inicio_deuda
     while c_tot <= ayer_sin_hora:
         f_str = c_tot.strftime("%d-%m-%Y")
-        if f_str in laboral_dict:
-            es_lab = laboral_dict[f_str]
-        else:
-            es_lab = c_tot.weekday() < 5
+        def_lab = c_tot.weekday() < 5
+        es_lab = laboral_dict.get(f_str, def_lab)
         
         if es_lab:
             dias_lab_mes = obtener_dias_laborables_mes(c_tot.year, c_tot.month, laboral_dict)
@@ -353,45 +345,29 @@ def calcular_totales(diccionario_registros, laboral_dict, horas_cronometro_extra
         round(deuda_septiembre, 2),
         round(deuda_octubre, 2),
         round(horas_totales_obligatorio, 2),
-        round(horas_totales_trabajadas_historico, 2),
+        round(horas_totales_trabajadas, 2),
     )
-
-def actualizar_fila_en_sheet(fecha_fec, nueva_hora, es_laboral):
-    try:
-        filas = worksheet.get_all_values()
-        fecha_como_texto = f"'{fecha_fec}"
-        val_laboral_str = str(es_laboral)
-
-        if not filas or len(filas) == 0:
-            worksheet.append_row(["Fecha", "Horas", "Laboral"], value_input_option="USER_ENTERED")
-            worksheet.append_row([fecha_como_texto, float(nueva_hora), val_laboral_str], value_input_option="USER_ENTERED")
-            return True
-
-        encontrado = False
-        for i, fila in enumerate(filas[1:], start=2):
-            if fila and len(fila) > 0 and limpiar_fecha(fila[0]) == fecha_fec:
-                worksheet.update_cell(i, 1, fecha_como_texto)
-                worksheet.update_cell(i, 2, float(nueva_hora))
-                worksheet.update_cell(i, 3, val_laboral_str)
-                encontrado = True
-                break
-
-        if not encontrado:
-            worksheet.append_row([fecha_como_texto, float(nueva_hora), val_laboral_str], value_input_option="USER_ENTERED")
-
-        return True
-    except Exception as e:
-        st.error(f"Error al actualizar la hoja: {e}")
-        return False
 
 def guardar_todo_en_sheet(diccionario_registros, diccionario_laboral):
     try:
         worksheet.clear()
         datos_para_guardar = [["Fecha", "Horas", "Laboral"]]
-        for fec in sorted(diccionario_registros.keys()):
+        
+        # Ordenar estrictamente por fecha cronológica antes de volcar al Sheet
+        fechas_ordenadas = sorted(
+            diccionario_registros.keys(),
+            key=lambda x: datetime.strptime(x, "%d-%m-%Y")
+        )
+        
+        for fec in fechas_ordenadas:
             fecha_como_texto = f"'{fec}"
             val_h = float(diccionario_registros[fec])
-            val_l = str(diccionario_laboral.get(fec, True))
+            
+            # Obtener estado laboral asegurando fin de semana por defecto falso
+            dt_temp = datetime.strptime(fec, "%d-%m-%Y")
+            def_lab = dt_temp.weekday() < 5
+            val_l = str(diccionario_laboral.get(fec, def_lab))
+            
             datos_para_guardar.append([fecha_como_texto, val_h, val_l])
 
         worksheet.append_rows(datos_para_guardar, value_input_option="USER_ENTERED")
@@ -399,6 +375,13 @@ def guardar_todo_en_sheet(diccionario_registros, diccionario_laboral):
     except Exception as e:
         st.error(f"Error al sincronizar con Google Sheets: {e}")
         return False
+
+def actualizar_fila_en_sheet(fecha_fec, nueva_hora, es_laboral):
+    # Recalculamos y guardamos todo ordenado cronológicamente para mantener el Sheet siempre ordenado
+    reg_actual, lab_actual = obtener_datos_hoja()
+    reg_actual[fecha_fec] = nueva_hora
+    lab_actual[fecha_fec] = es_laboral
+    return guardar_todo_en_sheet(reg_actual, lab_actual)
 
 def generar_pie_chart(actual, objetivo, color_faltante="#3b82f6"):
     fig, ax = plt.subplots(figsize=(2.2, 2.2))
@@ -522,7 +505,8 @@ with col_izq:
                 else:
                     st.session_state["registros"][fec] = horas_a_sumar
 
-                es_lab_actual = laboral_actuales.get(fec, hoy.weekday() < 5)
+                def_lab = hoy.weekday() < 5
+                es_lab_actual = laboral_actuales.get(fec, def_lab)
                 actualizar_fila_en_sheet(fec, st.session_state["registros"][fec], es_lab_actual)
                 
                 st.session_state["cronometro_activo"] = False
@@ -582,7 +566,8 @@ with col_izq:
 
     # Tarjeta Hoy
     with col1:
-        es_laboral_hoy = laboral_actuales.get(hoy_str, hoy.weekday() < 5)
+        def_lab_hoy = hoy.weekday() < 5
+        es_laboral_hoy = laboral_actuales.get(hoy_str, def_lab_hoy)
         
         if not es_laboral_hoy:
             base_comparativa_hoy = 4.0
@@ -717,13 +702,20 @@ with col_der:
         df_global["Fecha_dt"] = pd.Series(dtype="datetime64[ns]")
         df_global["Laboral"] = pd.Series(dtype="bool")
 
+    # ORDEN CRONOLÓGICO ESTRICTO (tanto por año/mes como por día)
     df_global_asc = df_global.sort_values(by="Fecha_dt", ascending=True).copy()
 
     if not df_global_asc.empty:
+        df_global_asc["Mes_ID"] = df_global_asc["Fecha_dt"].apply(
+            lambda x: (x.year, x.month) if pd.notnull(x) else (0, 0)
+        )
         df_global_asc["Mes_Nombre"] = df_global_asc["Fecha_dt"].apply(
             lambda x: f"{meses_espanol[x.month]} {x.year}" if pd.notnull(x) else "Desconocido"
         )
-        meses_unicos = df_global_asc.sort_values(by="Fecha_dt")["Mes_Nombre"].unique().tolist()
+        
+        # Obtener la lista única de meses ordenada cronológicamente (usando Mes_ID para asegurar orden de meses correcto)
+        meses_unicos_df = df_global_asc.sort_values(by="Fecha_dt")[["Mes_ID", "Mes_Nombre"]].drop_duplicates()
+        meses_unicos = meses_unicos_df["Mes_Nombre"].tolist()
     else:
         meses_unicos = []
 
@@ -770,7 +762,7 @@ with col_der:
                     st.session_state["registros"] = nuevo_diccionario_reg
                     st.session_state["laboral"] = nuevo_diccionario_lab
 
-                    st.success("Se han guardado los cambios.")
+                    st.success("Se han guardado los cambios y ordenado cronológicamente.")
                     st.rerun()
     else:
         st.info("No hay registros todavía.")
