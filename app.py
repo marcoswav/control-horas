@@ -444,7 +444,7 @@ if "segundos_acumulados" not in st.session_state:
     st.session_state["segundos_acumulados"] = 0
 
 registros_actuales = st.session_state["registros"]
-laboral_ actuales = st.session_state["laboral"]
+laboral_actuales = st.session_state["laboral"]
 
 segundos_totales_crono = st.session_state["segundos_acumulados"]
 if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
