@@ -69,21 +69,4 @@ st.markdown(
 
 # ------------------ CONEXIÓN CON GOOGLE SHEETS (OPTIMIZADA CON CACHÉ) ------------------
 @st.cache_resource
-def conectar_gspread():
-  credenciales_dict = dict(st.secrets["gcp_service_account"])
-  gc = gspread.service_account_from_dict(credenciales_dict)
-  spreadsheet_id = "1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E"
-  sh = gc.open_by_key(spreadsheet_id)
-  return sh
-
-worksheet = conectar_gspread()
-
-# ------------------ DICCIONARIOS Y FUNCIONES ------------------
-meses_espanol = {
-    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-    7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-}
-
-meses_espanol_lower = {
-    1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
-    7: "julio", 8: "agosto", 9: "septiembre", 10:
+def conectar
