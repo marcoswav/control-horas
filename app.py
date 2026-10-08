@@ -139,8 +139,11 @@ def formato_humano_a_fecha(humano_str):
 
 def obtener_datos_hoja():
     try:
+        # Añadimos esto para depurar
         registros = worksheet.get_all_records()
-    except Exception:
+        st.write("DEBUG - Registros brutos leídos de Google Sheets:", registros)
+    except Exception as e:
+        st.error(f"DEBUG - Error al conectar o leer la hoja: {e}")
         return {}
 
     diccionario_registros = {}
@@ -162,7 +165,8 @@ def obtener_datos_hoja():
         else:
             diccionario_registros[fecha] = horas
 
-    return diccionario_registros
+    st.write("DEBUG - Diccionario procesado:", diccionario_registros)
+    return diccionario_registross
 
 def formatear_horas(total_decimales):
     negativo = total_decimales < 0
