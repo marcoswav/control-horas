@@ -167,7 +167,7 @@ def obtener_datos_hoja():
         except ValueError:
             horas = 0.0
 
-        # Forzar fin de semana (S-D) como no laborable por defecto (False) y L-V como laborable (True)
+        # L-V laborable (True), S-D NO laborable por defecto (False)
         try:
             dt_temp = datetime.strptime(fecha, "%d-%m-%Y")
             def_lab = dt_temp.weekday() < 5
@@ -283,25 +283,39 @@ def calcular_totales(diccionario_registros, laboral_dict, horas_cronometro_extra
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
     inicio_deuda = datetime(2026, 7, 22)
 
-    horas_esperadas_hasta_ayer = 0.0
+    # Cálculo exacto de la deuda:
+    # Por cada día laborable desde el 22 de julio hasta ayer, se suma la cuota del objetivo diario (93 / días laborables del mes)
+    # y se restan las horas trabajadas en ese día (o en cualquier día, restando todo lo trabajado).
+    
+    deuda_acumulada = 0.0
+    horas_totales_obligatorio = 0.0
     curr = inicio_deuda
+    
     while curr <= ayer_sin_hora:
         f_str = curr.strftime("%d-%m-%Y")
         def_lab = curr.weekday() < 5
         es_lab = laboral_dict.get(f_str, def_lab)
         
-        # El cálculo solo computa los días estrictamente laborables
+        horas_trabajadas_dia = diccionario_registros.get(f_str, 0.0)
+        
         if es_lab:
             dias_lab_mes = obtener_dias_laborables_mes(curr.year, curr.month, laboral_dict)
-            horas_esperadas_hasta_ayer += 93.0 / dias_lab_mes
+            objetivo_diario = 93.0 / dias_lab_mes
+            horas_totales_obligatorio += objetivo_diario
+            
+            # Si se trabajó menos que el objetivo, la diferencia se suma a la deuda; si se trabajó más, resta
+            deuda_acumulada += (objetivo_diario - horas_trabajadas_dia)
+        else:
+            # Si no es laborable (ej. fin de semana), cualquier hora trabajada resta directamente de la deuda
+            deuda_acumulada -= horas_trabajadas_dia
+            
         curr += timedelta(days=1)
 
     horas_totales_trabajadas = sum(diccionario_registros.values())
-    deuda = horas_esperadas_hasta_ayer - horas_totales_trabajadas
 
+    # Función auxiliar para desglosar la deuda por meses con la misma lógica exacta
     def calcular_deuda_mes(inicio_mes_dt, fin_mes_dt):
-        d_lab = 0.0
-        h_trab = 0.0
+        d_mes = 0.0
         c = inicio_mes_dt
         limite = min(fin_mes_dt, ayer_sin_hora)
         while c <= limite:
@@ -309,36 +323,27 @@ def calcular_totales(diccionario_registros, laboral_dict, horas_cronometro_extra
                 f_str = c.strftime("%d-%m-%Y")
                 def_lab = c.weekday() < 5
                 es_lab = laboral_dict.get(f_str, def_lab)
+                h_trab = diccionario_registros.get(f_str, 0.0)
                 
                 if es_lab:
                     dias_lab_mes = obtener_dias_laborables_mes(c.year, c.month, laboral_dict)
-                    d_lab += 93.0 / dias_lab_mes
-            h_trab += diccionario_registros.get(c.strftime("%d-%m-%Y"), 0.0)
+                    obj_dia = 93.0 / dias_lab_mes
+                    d_mes += (obj_dia - h_trab)
+                else:
+                    d_mes -= h_trab
             c += timedelta(days=1)
-        return d_lab - h_trab
+        return d_mes
 
     deuda_julio = calcular_deuda_mes(datetime(2026, 7, 22), datetime(2026, 7, 31))
     deuda_agosto = calcular_deuda_mes(datetime(2026, 8, 1), datetime(2026, 8, 31))
     deuda_septiembre = calcular_deuda_mes(datetime(2026, 9, 1), datetime(2026, 9, 30))
     deuda_octubre = calcular_deuda_mes(datetime(2026, 10, 1), datetime(2026, 10, 31))
 
-    horas_totales_obligatorio = 0.0
-    c_tot = inicio_deuda
-    while c_tot <= ayer_sin_hora:
-        f_str = c_tot.strftime("%d-%m-%Y")
-        def_lab = c_tot.weekday() < 5
-        es_lab = laboral_dict.get(f_str, def_lab)
-        
-        if es_lab:
-            dias_lab_mes = obtener_dias_laborables_mes(c_tot.year, c_tot.month, laboral_dict)
-            horas_totales_obligatorio += 93.0 / dias_lab_mes
-        c_tot += timedelta(days=1)
-
     return (
         round(total_hoy, 2),
         round(total_sem, 2),
         round(total_mes, 2),
-        round(deuda, 2),
+        round(deuda_acumulada, 2),
         inicio_semana,
         inicio_mes,
         round(deuda_julio, 2),
@@ -668,7 +673,7 @@ with col_der:
 
     with st.container(border=True):
         st.metric("Total de horas pendientes de recuperar", formatear_horas(deuda_horas))
-        st.caption("Cálculo basado en objetivo de 93h/mes (excluyendo días no laborables y fines de semana) desde el 22 de Julio. Las horas trabajadas en días laborables restan deuda.")
+        st.caption("Cálculo basado en el objetivo diario por días laborables desde el 22 de Julio. Las horas no alcanzadas en días laborables suman deuda, y las trabajadas en exceso o en fines de semana/días no laborables la restan.")
 
         with st.popover("detalles de deuda"):
             st.markdown("**Deuda acumulada por mes (hasta ayer):**")
@@ -700,7 +705,7 @@ with col_der:
         df_global["Fecha_dt"] = pd.Series(dtype="datetime64[ns]")
         df_global["Laboral"] = pd.Series(dtype="bool")
 
-    # ORDEN CRONOLÓGICO INTERNO (para operar de forma ordenada por día dentro del mes)
+    # ORDEN CRONOLÓGICO INTERNO (para operar ordenadamente por día dentro de cada mes)
     df_global_asc = df_global.sort_values(by="Fecha_dt", ascending=True).copy()
 
     if not df_global_asc.empty:
@@ -711,7 +716,7 @@ with col_der:
             lambda x: f"{meses_espanol[x.month]} {x.year}" if pd.notnull(x) else "Desconocido"
         )
         
-        # Obtener la lista única de meses ordenados en ORDEN INVERSO (el mes más reciente / actual primero)
+        # Obtener la lista única de meses ordenados en ORDEN INVERSO (el mes actual / más reciente primero)
         meses_unicos_df = df_global_asc.sort_values(by="Fecha_dt", ascending=False)[["Mes_ID", "Mes_Nombre"]].drop_duplicates()
         meses_unicos = meses_unicos_df["Mes_Nombre"].tolist()
     else:
