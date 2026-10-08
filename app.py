@@ -74,7 +74,6 @@ def conectar_gspread():
     gc = gspread.service_account_from_dict(credenciales_dict)
     spreadsheet_id = "1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E"
     sh = gc.open_by_key(spreadsheet_id)
-    # Seleccionamos explícitamente la primera pestaña (worksheet) del documento
     worksheet = sh.get_worksheet(0)
     return worksheet
 
@@ -96,7 +95,7 @@ dias_semana_lower = {
 }
 
 def limpiar_fecha(fec_str):
-    fec_str = str(fec_str).strip()
+    fec_str = str(fec_str).strip().replace("'", "")
     try:
         for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
             try:
@@ -140,22 +139,30 @@ def formato_humano_a_fecha(humano_str):
     return humano_str
 
 def obtener_datos_hoja():
+    """Lectura robusta por filas (evita fallos si los encabezados varían)"""
     try:
-        registros = worksheet.get_all_records()
+        filas = worksheet.get_all_values()
     except Exception:
         return {}
 
     diccionario_registros = {}
-    for fila in registros:
-        fila_limpia = {str(k).strip(): v for k, v in fila.items()}
-        fecha_raw = fila_limpia.get("Fecha", "")
+    if not filas or len(filas) <= 1:
+        return diccionario_registros
+
+    # Omitimos la primera fila (cabecera)
+    for fila in filas[1:]:
+        if not fila or len(fila) < 2:
+            continue
+        
+        fecha_raw = fila[0]
+        raw_horas = fila[1]
+        
         fecha = limpiar_fecha(fecha_raw)
-        if not fecha or fecha == "Fecha":
+        if not fecha or fecha.lower() == "fecha":
             continue
 
-        raw_horas = fila_limpia.get("Horas", 0)
         try:
-            horas = float(raw_horas) if str(raw_horas).strip() != "" else 0.0
+            horas = float(str(raw_horas).strip().replace(",", ".")) if str(raw_horas).strip() != "" else 0.0
         except ValueError:
             horas = 0.0
 
@@ -205,7 +212,7 @@ def parsear_horas_texto(valor):
                     m = float(partes[i - 1])
             return h + (m / 60.0)
         else:
-            return float(val_str)
+            return float(val_str.replace(",", "."))
     except Exception:
         return 0.0
 
@@ -318,14 +325,14 @@ def actualizar_fila_en_sheet(fecha_fec, nueva_hora):
         filas = worksheet.get_all_values()
         fecha_como_texto = f"'{fecha_fec}"
 
-        if not filas:
+        if not filas or len(filas) == 0:
             worksheet.append_row(["Fecha", "Horas"], value_input_option="USER_ENTERED")
             worksheet.append_row([fecha_como_texto, float(nueva_hora)], value_input_option="USER_ENTERED")
             return True
 
         encontrado = False
         for i, fila in enumerate(filas[1:], start=2):
-            if fila and limpiar_fecha(fila[0]) == fecha_fec:
+            if fila and len(fila) > 0 and limpiar_fecha(fila[0]) == fecha_fec:
                 worksheet.update_cell(i, 1, fecha_como_texto)
                 worksheet.update_cell(i, 2, float(nueva_hora))
                 encontrado = True
@@ -421,6 +428,12 @@ horas_cronometro_decimales = segundos_totales_crono / 3600.0
 
 # ------------------ TÍTULO PRINCIPAL DE LA WEB ------------------
 st.title("Control horas work")
+
+# Botón rápido para forzar la recarga de datos desde Google Sheets si sale vacío
+if st.button("🔄 Recargar datos de Google Sheets"):
+    st.session_state["registros"] = obtener_datos_hoja()
+    st.rerun()
+
 st.markdown("---")
 
 # ------------------ DISEÑO GENERAL DE LA INTERFAZ (2 COLUMNAS) ------------------
