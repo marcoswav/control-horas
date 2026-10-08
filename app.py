@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# ------------------ ESTILOS CSS Y ANIMACIONES ------------------
+# ------------------ ESTILOS CSS GENERALES ------------------
 st.markdown(
     """
     <style>
@@ -20,25 +20,60 @@ st.markdown(
         [data-testid="stMetricLabel"] { font-size: 1.1rem !important; }
         .stCaption { font-size: 1rem !important; }
         .stDataFrame, .stTable, [data-testid="stDataEditor"] { font-size: 1rem !important; }
-        
-        div[data-testid="stProgress"] > div > div > div {
-            background-image: linear-gradient(90deg, #3b82f6, #1d4ed8, #60a5fa);
-            background-size: 200% 100%;
-            animation: gradientAnimation 1.5s ease infinite;
-            transition: width 0.6s ease-in-out;
-        }
-
-        @keyframes gradientAnimation {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
     </style>
 """,
     unsafe_allow_html=True,
 )
 
-# ------------------ LISTADO DE FESTIVOS EN GRANADA Y ESPAÑA ------------------
+# ------------------ COMPONENTES VISUALES CON ANIMACIÓN ------------------
+
+def renderizar_grafico_circular(horas_actuales, horas_objetivo, titulo="Objetivo"):
+    """Dibuja un gráfico circular con animación CSS para el progreso del objetivo."""
+    porcentaje = min(max((horas_actuales / horas_objetivo) * 100, 0), 100) if horas_objetivo > 0 else 0
+    radio = 58
+    circunferencia = 2 * 3.14159 * radio
+    offset = circunferencia - (porcentaje / 100) * circunferencia
+
+    html_code = f"""
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: sans-serif;">
+        <span style="font-size: 1rem; font-weight: bold; margin-bottom: 0.5rem; color: #1e293b;">{titulo}</span>
+        <div style="position: relative; width: 140px; height: 140px; display: flex; align-items: center; justify-content: center;">
+            <svg width="140" height="140">
+                <circle stroke="#e2e8f0" stroke-width="10" fill="transparent" r="{radio}" cx="70" cy="70" />
+                <circle stroke="#3b82f6" stroke-width="10" stroke-linecap="round" fill="transparent" r="{radio}" cx="70" cy="70"
+                    style="stroke-dasharray: {circunferencia}; stroke-dashoffset: {offset}; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1);" />
+            </svg>
+            <span style="position: absolute; font-size: 1.3rem; font-weight: bold; color: #1e293b;">{round(porcentaje)}%</span>
+        </div>
+        <span style="font-size: 0.85rem; color: #64748b; margin-top: 0.3rem;">{round(horas_actuales, 1)}h / {horas_objetivo}h</span>
+    </div>
+    """
+    st.components.v1.html(html_code, height=200)
+
+
+def renderizar_barra_animada(deuda_actual, deuda_total_inicial, titulo="Estado de Deuda"):
+    """Dibuja una barra de progreso animada para el seguimiento de la deuda."""
+    # Calculamos el porcentaje recuperado
+    if deuda_total_inicial > 0:
+        recuperado = max(deuda_total_inicial - deuda_actual, 0)
+        porcentaje = min(max((recuperado / deuda_total_inicial) * 100, 0), 100)
+    else:
+        porcentaje = 100 if deuda_actual <= 0 else 0
+
+    html_code = f"""
+    <div style="font-family: sans-serif; width: 100%; padding: 5px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 0.95rem; font-weight: bold; color: #1e293b;">{titulo}</span>
+            <span style="font-size: 0.9rem; font-weight: bold; color: #ef4444;">{round(porcentaje, 1)}% recuperado</span>
+        </div>
+        <div style="width: 100%; background-color: #e2e8f0; border-radius: 8px; height: 18px; overflow: hidden;">
+            <div style="width: {porcentaje}%; background: linear-gradient(90deg, #ef4444 0%, #f59e0b 100%); height: 100%; border-radius: 8px; transition: width 1.2s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+        </div>
+    </div>
+    """
+    st.components.v1.html(html_code, height=65)
+
+# ------------------ FESTIVOS EN GRANADA Y ESPAÑA ------------------
 FESTIVOS_GRANADA = {
     # 2024
     "01-01-2024", "02-01-2024", "06-01-2024", "28-02-2024", "28-03-2024", "29-03-2024",
@@ -55,8 +90,8 @@ FESTIVOS_GRANADA = {
 }
 
 def es_dia_laborable_por_defecto(dt_obj):
-    """Fuerza FALSE para sábados, domingos y festivos de Granada/España."""
-    if dt_obj.weekday() >= 5:  # 5 = Sábado, 6 = Domingo
+    """Sábados, domingos y festivos son no laborables por defecto."""
+    if dt_obj.weekday() >= 5:
         return False
     fecha_fmt = dt_obj.strftime("%d-%m-%Y")
     if fecha_fmt in FESTIVOS_GRANADA:
@@ -74,7 +109,7 @@ def conectar_gspread():
 
 worksheet = conectar_gspread()
 
-# ------------------ AUXILIARES ------------------
+# ------------------ FUNCIONES AUXILIARES ------------------
 meses_espanol = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
@@ -151,11 +186,12 @@ def obtener_datos_hoja():
         else:
             es_lab = def_lab
 
-        # REGLA ESTRICTA: Sábados y domingos siempre no laborables por defecto
+        # REGLA ESTRICTA: Sábados y domingos siempre no laborables a partir de Julio
         try:
             dt_check = datetime.strptime(fecha, "%d-%m-%Y")
-            if dt_check.weekday() >= 5 and raw_laboral == "":
-                es_lab = False
+            if dt_check.weekday() >= 5 and dt_check.month >= 7:
+                if raw_laboral == "":
+                    es_lab = False
         except Exception:
             pass
 
@@ -302,7 +338,7 @@ def guardar_todo_en_sheet(diccionario_registros, diccionario_laboral):
         st.error(f"Error al sincronizar con Google Sheets: {e}")
         return False
 
-# ------------------ ESTADO Y CARGA ------------------
+# ------------------ ESTADO Y CARGA DE DATOS ------------------
 if "registros" not in st.session_state or "laboral" not in st.session_state:
     reg, lab = obtener_datos_hoja()
     st.session_state["registros"] = reg
@@ -371,21 +407,29 @@ with col_izq:
         st.metric("Mes", formatear_horas(tot_mes))
 
 with col_der:
-    st.markdown("### Horas a recuperar")
+    st.markdown("### Horas a recuperar y Objetivos")
     with st.container(border=True):
         st.metric("Deuda pendiente total", formatear_horas(deuda_horas))
-        st.caption("Sábados, domingos y festivos en Granada/España son no laborables (False). No suman deuda y cualquier hora trabajada se descuenta.")
+        st.caption("Sábados, domingos y festivos en Granada/España son no laborables.")
 
-        # --- BARRAS ANIMADAS RESTAURADAS ---
-        pct_recuperado = 0.0
-        if horas_totales_obligatorio > 0:
-            pct_recuperado = min(1.0, max(0.0, horas_totales_trabajadas / horas_totales_obligatorio))
-        
-        st.write("**Progreso global de horas recuperadas:**")
-        st.progress(pct_recuperado)
-        st.caption(f"{round(pct_recuperado * 100, 1)}% completado")
+        # 1. BARRITA ANIMADA PARA LA DEUDA
+        deuda_inicial_base = (deuda_julio + deuda_agosto + deuda_septiembre + deuda_octubre)
+        renderizar_barra_animada(
+            deuda_actual=deuda_horas,
+            deuda_total_inicial=max(deuda_inicial_base, 1.0),
+            titulo="Progreso de Reducción de Deuda"
+        )
 
-        with st.popover("Detalles de deuda"):
+        st.markdown("---")
+
+        # 2. GRÁFICO CIRCULAR ANIMADO PARA EL OBJETIVO ACUMULADO
+        renderizar_grafico_circular(
+            horas_actuales=horas_totales_trabajadas,
+            horas_objetivo=max(horas_totales_obligatorio, 1.0),
+            titulo="Objetivo Acumulado Trabajos vs Obligatorio"
+        )
+
+        with st.popover("Detalles de deuda por mes"):
             st.write(f"• **Julio (desde 22):** {formatear_horas(deuda_julio)}")
             st.write(f"• **Agosto:** {formatear_horas(deuda_agosto)}")
             st.write(f"• **Septiembre:** {formatear_horas(deuda_septiembre)}")
