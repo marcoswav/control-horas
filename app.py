@@ -261,9 +261,8 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos
     total_mes += horas_cronometro_extra
 
     ayer_sin_hora = hoy_sin_hora - timedelta(days=1)
-    inicio_deuda = datetime(2026, 7, 22) # Actualizado al 22 de julio
+    inicio_deuda = datetime(2026, 7, 22)
 
-    # 1. Calcular horas esperadas (obligatorias) a partir del 22 de julio hasta ayer (excluyendo fines de semana y festivos)
     horas_esperadas_hasta_ayer = 0.0
     curr = inicio_deuda
     while curr <= ayer_sin_hora:
@@ -276,10 +275,7 @@ def calcular_totales(diccionario_registros, horas_cronometro_extra=0.0, festivos
             horas_esperadas_hasta_ayer += 93.0 / dias_lab_mes
         curr += timedelta(days=1)
 
-    # 2. Calcular horas trabajadas en TODO el histórico (incluyendo antes del 22 de julio para descontarlas de la deuda inicial)
     horas_totales_trabajadas_historico = sum(diccionario_registros.values())
-
-    # La deuda total es lo obligatorio esperado menos todo lo que se ha trabajado en total (lo cual descuenta automáticamente lo hecho antes del 22 de julio)
     deuda = horas_esperadas_hasta_ayer - horas_totales_trabajadas_historico
 
     def calcular_deuda_mes(inicio_mes_dt, fin_mes_dt):
@@ -391,18 +387,17 @@ hoy_str = hoy.strftime("%d-%m-%Y")
 if "registros" not in st.session_state:
     st.session_state["registros"] = obtener_datos_hoja()
 
-# Lista inicial por defecto de festivos de España y Granada (ejemplos adaptables)
 if "festivos" not in st.session_state:
     st.session_state["festivos"] = [
-        "15-08-2026", # Asunción de la Virgen
-        "12-10-2026", # Fiesta Nacional de España
-        "01-11-2026", # Todos los Santos
-        "02-11-2026", # Lunes posterior a Todos los Santos
-        "06-12-2026", # Día de la Constitución
-        "08-12-2026", # La Inmaculada
-        "25-12-2026", # Navidad
-        "02-01-2027", # Toma de Granada
-        "06-01-2027", # Reyes Magos
+        "15-08-2026",
+        "12-10-2026",
+        "01-11-2026",
+        "02-11-2026",
+        "06-12-2026",
+        "08-12-2026",
+        "25-12-2026",
+        "02-01-2027",
+        "06-01-2027",
     ]
 
 if "cronometro_activo" not in st.session_state:
@@ -417,7 +412,6 @@ if "segundos_acumulados" not in st.session_state:
 registros_actuales = st.session_state["registros"]
 festivos_set = set(st.session_state["festivos"])
 
-# Calcular segundos actuales del cronómetro en tiempo real
 segundos_totales_crono = st.session_state["segundos_acumulados"]
 if st.session_state["cronometro_activo"] and st.session_state["tiempo_inicio"]:
     diferencia = datetime.now() - st.session_state["tiempo_inicio"]
@@ -659,98 +653,105 @@ with col_der:
 
     st.markdown("---")
 
-    # --- 4. CALENDARIO DE FESTIVOS (ESPAÑA / GRANADA) ---
-    st.subheader("📅 Calendario de Festivos (España y Granada)")
-    st.caption("Los festivos añadidos aquí se comportan como fines de semana: no generan obligación de horas, pero si trabajas en ellos, las horas se restarán de tu deuda.")
+    # --- 4. TABLA DE HISTORIAL, FESTIVOS Y EDICIÓN ORDENADA CRONOLÓGICAMENTE ---
+    st.subheader("Historial y Festivos")
 
-    df_festivos = pd.DataFrame({"Fecha Festiva (DD-MM-YYYY)": sorted(st.session_state["festivos"])})
-    df_festivos_editado = st.data_editor(
-        df_festivos,
-        num_rows="dynamic",
-        key="editor_festivos",
-        use_container_width=True,
-        height=180
-    )
+    # Procesar registros globales y ordenarlos cronológicamente (por fecha real)
+    lista_datos = [{"Fecha": f, "Horas": h} for f, h in registros_actuales.items()]
+    df_global = pd.DataFrame(lista_datos)
 
-    # Actualizar la lista de festivos si el usuario los modifica
-    nuevos_festivos = []
-    for val in df_festivos_editado["Fecha Festiva (DD-MM-YYYY)"]:
-        f_limpia = limpiar_fecha(val)
-        if f_limpia and f_limpia not in nuevos_festivos:
-            nuevos_festivos.append(f_limpia)
-    
-    if set(nuevos_festivos) != set(st.session_state["festivos"]):
-        st.session_state["festivos"] = nuevos_festivos
-        st.rerun()
-
-    st.markdown("---")
-
-    # --- 5. TABLA DE HISTORIAL Y EDICIÓN ---
-    st.subheader("Horas workeadas anteriormente")
-
-    if registros_actuales:
-        lista_datos = [{"Fecha": f, "Horas": h} for f, h in registros_actuales.items()]
-        df_global = pd.DataFrame(lista_datos)
-
+    if not df_global.empty:
         df_global["Fecha_dt"] = pd.to_datetime(df_global["Fecha"], format="%d-%m-%Y", errors="coerce")
+    else:
+        df_global["Fecha_dt"] = pd.Series(dtype="datetime64[ns]")
 
-        df_global["Mes"] = df_global["Fecha_dt"].apply(
+    # Ordenar cronológicamente ascendente para las tablas internas
+    df_global_asc = df_global.sort_values(by="Fecha_dt", ascending=True).copy()
+
+    # Agrupar cronológicamente por Mes y Año (ordenados por la fecha mínima de cada grupo para garantizar orden cronológico de pestañas)
+    if not df_global_asc.empty:
+        df_global_asc["Mes_Clave"] = df_global_asc["Fecha_dt"].apply(
+            lambda x: (x.year, x.month) if pd.notnull(x) else (0, 0)
+        )
+        df_global_asc["Mes_Nombre"] = df_global_asc["Fecha_dt"].apply(
             lambda x: f"{meses_espanol[x.month]} {x.year}" if pd.notnull(x) else "Desconocido"
         )
-
-        df_global_desc = df_global.sort_values(by="Fecha_dt", ascending=False)
-        meses_disponibles = []
-        for m in df_global_desc["Mes"]:
-            if m not in meses_disponibles:
-                meses_disponibles.append(m)
-
-        df_global_asc = df_global.sort_values(by="Fecha_dt", ascending=True)
-        df_global_asc = df_global_asc.drop(columns=["Fecha_dt"])
-
-        if meses_disponibles:
-            pestañas = st.tabs(meses_disponibles)
-
-            for i, mes_nombre in enumerate(meses_disponibles):
-                with pestañas[i]:
-                    df_mes = df_global_asc[df_global_asc["Mes"] == mes_nombre][["Fecha", "Horas"]].reset_index(drop=True)
-
-                    total_horas_mes_actual = df_mes["Horas"].sum()
-
-                    st.info(f"Total horas trabajadas en {mes_nombre}: {formatear_horas(total_horas_mes_actual)}")
-                    st.write(f"Editando registros de: **{mes_nombre}**")
-
-                    df_mes_visual = df_mes.copy()
-                    df_mes_visual["Fecha"] = df_mes_visual["Fecha"].apply(fecha_a_formato_humano)
-                    df_mes_visual["Horas"] = df_mes_visual["Horas"].apply(formatear_horas)
-
-                    df_editado = st.data_editor(
-                        df_mes_visual,
-                        key=f"editor_{i}_{mes_nombre}",
-                        use_container_width=True,
-                        hide_index=True,
-                        height=280,
-                    )
-
-                    if not df_editado.equals(df_mes_visual):
-                        fechas_convertidas = df_editado["Fecha"].apply(formato_humano_a_fecha)
-                        df_global_asc.loc[df_global_asc["Mes"] == mes_nombre, "Fecha"] = fechas_convertidas.values
-                        df_global_asc.loc[df_global_asc["Mes"] == mes_nombre, "Horas"] = df_editado["Horas"].apply(parsear_horas_texto).values
-
-                        df_para_guardar = df_global_asc[["Fecha", "Horas"]]
-
-                        nuevo_diccionario = {}
-                        for _, r in df_para_guardar.iterrows():
-                            fec_limpia = limpiar_fecha(r["Fecha"])
-                            val_horas = parsear_horas_texto(r["Horas"])
-                            nuevo_diccionario[fec_limpia] = val_horas
-
-                        guardar_todo_en_sheet(nuevo_diccionario)
-                        st.session_state["registros"] = nuevo_diccionario
-
-                        st.success("Se han guardado los cambios.")
-                        st.rerun()
+        
+        # Obtener los meses ordenados cronológicamente
+        meses_unicos = df_global_asc.sort_values(by="Fecha_dt")["Mes_Nombre"].unique().tolist()
     else:
-        st.info("Aún no hay registros en la base de datos.")
+        meses_unicos = []
+
+    # Construir lista de pestañas: Primera pestaña "📅 Festivos" y luego los meses cronológicamente
+    nombres_pestanas = ["📅 Festivos"] + meses_unicos
+    pestañas = st.tabs(nombres_pestanas)
+
+    # --- PESTAÑA 0: FESTIVOS ---
+    with pestañas[0]:
+        st.caption("Los festivos añadidos aquí se comportan como fines de semana: no generan obligación de horas, pero si trabajas en ellos, las horas se restarán de tu deuda.")
+        
+        # Ordenar festivos cronológicamente
+        festivos_ordenados = sorted(st.session_state["festivos"], key=lambda x: datetime.strptime(x, "%d-%m-%Y") if datetime.strptime(x, "%d-%m-%Y") else datetime.max)
+        df_festivos = pd.DataFrame({"Fecha Festiva (DD-MM-YYYY)": festivos_ordenados})
+        
+        df_festivos_editado = st.data_editor(
+            df_festivos,
+            num_rows="dynamic",
+            key="editor_festivos",
+            use_container_width=True,
+            height=280
+        )
+
+        nuevos_festivos = []
+        for val in df_festivos_editado["Fecha Festiva (DD-MM-YYYY)"]:
+            f_limpia = limpiar_fecha(val)
+            if f_limpia and f_limpia not in nuevos_festivos:
+                nuevos_festivos.append(f_limpia)
+        
+        if set(nuevos_festivos) != set(st.session_state["festivos"]):
+            st.session_state["festivos"] = nuevos_festivos
+            st.rerun()
+
+    # --- PESTAÑAS 1 en adelante: MESES CRONOLÓGICOS ---
+    for i, mes_nombre in enumerate(meses_unicos):
+        with pestañas[i + 1]:
+            df_mes = df_global_asc[df_global_asc["Mes_Nombre"] == mes_nombre][["Fecha", "Horas"]].reset_index(drop=True)
+
+            total_horas_mes_actual = df_mes["Horas"].sum()
+
+            st.info(f"Total horas trabajadas en {mes_nombre}: {formatear_horas(total_horas_mes_actual)}")
+            st.write(f"Editando registros de: **{mes_nombre}**")
+
+            df_mes_visual = df_mes.copy()
+            df_mes_visual["Fecha"] = df_mes_visual["Fecha"].apply(fecha_a_formato_humano)
+            df_mes_visual["Horas"] = df_mes_visual["Horas"].apply(formatear_horas)
+
+            df_editado = st.data_editor(
+                df_mes_visual,
+                key=f"editor_mes_{i}_{mes_nombre}",
+                use_container_width=True,
+                hide_index=True,
+                height=280,
+            )
+
+            if not df_editado.equals(df_mes_visual):
+                fechas_convertidas = df_editado["Fecha"].apply(formato_humano_a_fecha)
+                df_global_asc.loc[df_global_asc["Mes_Nombre"] == mes_nombre, "Fecha"] = fechas_convertidas.values
+                df_global_asc.loc[df_global_asc["Mes_Nombre"] == mes_nombre, "Horas"] = df_editado["Horas"].apply(parsear_horas_texto).values
+
+                df_para_guardar = df_global_asc[["Fecha", "Horas"]]
+
+                nuevo_diccionario = {}
+                for _, r in df_para_guardar.iterrows():
+                    fec_limpia = limpiar_fecha(r["Fecha"])
+                    val_horas = parsear_horas_texto(r["Horas"])
+                    nuevo_diccionario[fec_limpia] = val_horas
+
+                guardar_todo_en_sheet(nuevo_diccionario)
+                st.session_state["registros"] = nuevo_diccionario
+
+                st.success("Se han guardado los cambios.")
+                st.rerun()
 
 # ------------------ BUCLE DE ACTUALIZACIÓN EN TIEMPO REAL ------------------
 if st.session_state["cronometro_activo"]:
