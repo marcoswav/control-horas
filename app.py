@@ -73,10 +73,14 @@ st.markdown(
 # ------------------ CONEXIÓN CON GOOGLE SHEETS (OPTIMIZADA CON CACHÉ) ------------------
 @st.cache_resource
 def conectar_gspread():
-    credenciales_dict = dict(st.secrets["gcp_service_account"])
-    gc = gspread.service_account_from_dict(credenciales_dict)
-    sh = gc.open("stock control horas")
-    return sh.get_worksheet(0)
+  credenciales_dict = dict(st.secrets["gcp_service_account"])
+  gc = gspread.service_account_from_dict(credenciales_dict)
+
+  # Usa el ID de tu hoja de cálculo en lugar del nombre
+  # El ID es la cadena larga que aparece en la URL de tu hoja entre /d/ y /edit
+  spreadsheet_id = "1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E"
+  sh = gc.open_by_key(spreadsheet_id)
+  return sh
 
 worksheet = conectar_gspread()
 
