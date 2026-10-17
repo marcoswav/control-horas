@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import calendar
+import json
 import re
 import time
 from datetime import date, datetime, timedelta
@@ -485,27 +486,129 @@ with right:
                          "Objetivo":fmt(DAILY_SECONDS if r["work"] else 0),
                          "Trabajado":fmt(r["seconds"]),"Motivo":r.get("note","")})
         df=pd.DataFrame(data)
-        edited=st.data_editor(df,hide_index=True,use_container_width=True,key=f"editor_{year}_{month}",
+        # Column layout is a deliberate, persistent setting, not Streamlit's
+        # temporary drag/hide state (which data_editor does not expose to Python).
+        ALL_COLS = list(df.columns)
+        layout_key = "historial_layout_v1"
+        if layout_key not in st.session_state:
+            try:
+                stored = json.loads((ws.acell("L2").value or "{}"))
+                stored_cols = stored.get("columns", ALL_COLS)
+                valid_cols = [c for c in stored_cols if c in ALL_COLS]
+                st.session_state[layout_key] = valid_cols if valid_cols else ALL_COLS.copy()
+            except (ValueError, TypeError, AttributeError):
+                st.session_state[layout_key] = ALL_COLS.copy()
+
+        def persist_layout(cols):
+            if not cols:
+                st.session_state["layout_notice"] = ("error", "Debe quedar al menos una columna visible.")
+                return
+            try:
+                ws.update(range_name="L1:L2", values=[["Preferencias historial"],
+                          [json.dumps({"columns": cols}, ensure_ascii=False)]], value_input_option="RAW")
+                st.session_state[layout_key] = cols
+                st.session_state["layout_notice"] = ("success", "Distribución de columnas guardada en Google Sheets.")
+            except Exception as exc:
+                st.session_state["layout_notice"] = ("error", f"No se pudo guardar la distribución: {exc}")
+
+        with st.expander("Personalizar columnas (se conserva al recargar)"):
+            visible = st.multiselect("Columnas visibles", ALL_COLS,
+                        default=st.session_state[layout_key], key="history_visible_cols")
+            if visible != st.session_state[layout_key]:
+                if st.button("Aplicar columnas visibles", key="apply_visible"):
+                    # Retain the relative order of existing columns.
+                    current = st.session_state[layout_key]
+                    ordered = [c for c in current if c in visible] + [c for c in visible if c not in current]
+                    persist_layout(ordered)
+                    st.rerun()
+            if st.session_state[layout_key]:
+                move_col = st.selectbox("Columna que quieres mover", st.session_state[layout_key], key="move_col")
+                up, down = st.columns(2)
+                with up:
+                    if st.button("⬅ Mover a la izquierda", use_container_width=True):
+                        order = st.session_state[layout_key].copy()
+                        idx = order.index(move_col)
+                        if idx > 0:
+                            order[idx-1], order[idx] = order[idx], order[idx-1]
+                            persist_layout(order)
+                            st.rerun()
+                with down:
+                    if st.button("Mover a la derecha ➡", use_container_width=True):
+                        order = st.session_state[layout_key].copy()
+                        idx = order.index(move_col)
+                        if idx < len(order)-1:
+                            order[idx+1], order[idx] = order[idx], order[idx+1]
+                            persist_layout(order)
+                            st.rerun()
+        if "layout_notice" in st.session_state:
+            level, msg = st.session_state.pop("layout_notice")
+            (st.success if level == "success" else st.error)(msg)
+
+        editor_key = f"editor_{year}_{month}"
+
+        def autosave_history():
+            """Runs on cell commit. Validate all edits before any Sheets write."""
+            try:
+                edited_rows = st.session_state.get(editor_key, {}).get("edited_rows", {})
+                if not edited_rows:
+                    return
+                # Re-read to avoid overwriting changes made in another browser/tab.
+                latest, issues = read_records(ws)
+                if issues:
+                    raise ValueError("Google Sheets contiene filas pendientes de revisión; no se ha guardado nada.")
+                changes = []
+                for raw_idx, patch in edited_rows.items():
+                    idx = int(raw_idx)
+                    if idx < 0 or idx >= len(subset):
+                        raise ValueError("La fila editada ya no existe.")
+                    d = subset[idx]
+                    original = records[d]
+                    current = latest.get(d)
+                    if current is None or current != original:
+                        raise ValueError(f"El día {d:%d/%m/%Y} cambió en Google Sheets. Recarga antes de editarlo.")
+                    if any(c not in ("Laborable", "Horas", "Minutos", "Motivo") for c in patch):
+                        raise ValueError("Se intentó modificar una columna de solo lectura.")
+                    hours = patch.get("Horas", df.iloc[idx]["Horas"])
+                    minutes = patch.get("Minutos", df.iloc[idx]["Minutos"])
+                    if isinstance(hours, bool) or isinstance(minutes, bool):
+                        raise ValueError("Las horas y los minutos deben ser números enteros.")
+                    h, m = int(hours), int(minutes)
+                    if h != float(hours) or m != float(minutes) or not (0 <= h <= 24 and 0 <= m <= 59) or h*60+m > 1440:
+                        raise ValueError("La duración debe estar entre 0:00 y 24:00, con minutos entre 0 y 59.")
+                    work = patch.get("Laborable", original["work"])
+                    if not isinstance(work, bool):
+                        raise ValueError("El valor Laborable debe ser Sí o No.")
+                    note = patch.get("Motivo", original.get("note", ""))
+                    if note is None:
+                        note = ""
+                    note = str(note)
+                    if len(note) > 1000:
+                        raise ValueError("El motivo no puede superar 1000 caracteres.")
+                    seconds = h*3600 + m*60
+                    if seconds != original["seconds"] or work != original["work"] or note != original.get("note", ""):
+                        changes.append((d, seconds, work, note))
+                for d, seconds, work, note in changes:
+                    save_day(ws, latest, d, seconds=seconds, work=work, note=note)
+                # Remove pending edits only after all writes succeeded.
+                st.session_state.pop(editor_key, None)
+                st.session_state["autosave_notice"] = ("success", f"{len(changes)} día(s) guardado(s) automáticamente en Google Sheets.")
+            except Exception as exc:
+                st.session_state["autosave_notice"] = ("error", f"No se ha podido completar el guardado: {exc}. Revisa Google Sheets antes de reintentar.")
+
+        # The editor's own drag/reorder/hide interactions are not persistent;
+        # use the settings above to keep column layout across devices/reloads.
+        st.data_editor(df,hide_index=True,use_container_width=True,key=editor_key,
+            column_order=st.session_state[layout_key],
+            on_change=autosave_history,
             disabled=["Fecha","Día","Objetivo","Trabajado"],
             column_config={"Laborable":st.column_config.CheckboxColumn("Laborable"),
-                           "Horas":st.column_config.NumberColumn("Horas",min_value=0,max_value=1000,step=1),
+                           "Horas":st.column_config.NumberColumn("Horas",min_value=0,max_value=24,step=1),
                            "Minutos":st.column_config.NumberColumn("Minutos",min_value=0,max_value=59,step=1),
                            "Motivo":st.column_config.TextColumn("Motivo")})
-        if st.button("Guardar cambios del historial",type="primary"):
-            changes=[]
-            for idx,d in enumerate(subset):
-                old=records[d]
-                new=edited.iloc[idx]
-                new_secs=int(new["Horas"])*3600+int(new["Minutos"])*60
-                if new_secs!=old["seconds"] or bool(new["Laborable"])!=old["work"] or str(new["Motivo"])!=old.get("note",""):
-                    changes.append((d,new_secs,bool(new["Laborable"]),str(new["Motivo"])))
-            try:
-                for d,s,w,n in changes:
-                    save_day(ws,records,d,seconds=s,work=w,note=n)
-                st.success(f"{len(changes)} día(s) actualizado(s)")
-                refresh()
-            except Exception as exc:
-                st.error(f"Error guardando historial: {exc}. Revisa la hoja antes de reintentar.")
+        if "autosave_notice" in st.session_state:
+            level, msg = st.session_state.pop("autosave_notice")
+            (st.success if level == "success" else st.error)(msg)
+        st.caption("Los cambios se guardan al confirmar cada edición. Para conservar columnas ocultas o reordenadas, usa «Personalizar columnas».")
 
 st.divider()
 st.markdown("### Herramientas de Google Sheets")
