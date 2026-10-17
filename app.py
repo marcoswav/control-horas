@@ -38,6 +38,16 @@ def date_parse(value):
     if isinstance(value, date):
         return value
     s = str(value).strip().replace("'", "")
+    # Google Sheets/Excel serial dates: 1899-12-30 is serial day zero.
+    # When Sheets converts a USER_ENTERED date, FORMATTED_VALUE may return
+    # the serial as a string if the cell's format is later changed to TEXT.
+    if re.fullmatch(r"\d+(?:\.0+)?", s):
+        serial = int(float(s))
+        if 20000 <= serial <= 100000:
+            try:
+                return date(1899, 12, 30) + timedelta(days=serial)
+            except OverflowError:
+                return None
     for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d/%m/%y"):
         try:
             return datetime.strptime(s, fmt).date()
@@ -151,7 +161,7 @@ def read_records(ws):
 def sheet_row(day, record, index):
     work = record["work"]
     # Sheets duration numeric serial (days), NOT decimal hours.
-    return [day.strftime("%d/%m/%Y"), record["seconds"] / 86400, "Sí" if work else "No",
+    return ["'" + day.strftime("%d/%m/%Y"), record["seconds"] / 86400, "Sí" if work else "No",
             f'=IF(C{index}="Sí",TIME(4,36,0),0)',
             f'=IF(G{index}<0,"-","+")&TEXT(ABS(G{index})/1440,"[h]:mm")',
             record.get("note", ""), f"=ROUND((B{index}-D{index})*1440,0)"]
