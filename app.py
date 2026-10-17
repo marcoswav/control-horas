@@ -21,6 +21,10 @@ div[data-testid="stProgress"]>div>div>div{background-image:linear-gradient(90deg
 @keyframes gradientAnimation{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
 </style>''', unsafe_allow_html=True)
 
+st.title("PRUEBA DE CONEXIÓN")
+st.success("Streamlit está ejecutando el código correctamente")
+
+
 TZ = ZoneInfo("Europe/Madrid")
 START = date(2026, 7, 22)
 DAILY_SECONDS = 4 * 3600 + 36 * 60
