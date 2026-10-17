@@ -24,6 +24,33 @@ div[data-testid="stProgress"]>div>div>div{background-image:linear-gradient(90deg
 st.title("PRUEBA DE CONEXIÓN")
 st.success("Streamlit está ejecutando el código correctamente")
 
+st.info("PASO 1: Comprobando acceso a Google Sheets")
+
+try:
+    credenciales = dict(st.secrets["gcp_service_account"])
+
+    cliente = gspread.service_account_from_dict(credenciales)
+
+    documento = cliente.open_by_key(
+        "1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E"
+    )
+
+    hoja_prueba = documento.get_worksheet(0)
+
+    st.success("PASO 2: Conexión con Google Sheets correcta")
+
+    filas_prueba = hoja_prueba.get("A1:B5")
+
+    st.success("PASO 3: Lectura de Google Sheets correcta")
+    st.write(filas_prueba)
+
+except Exception as e:
+    st.error("ERROR AL CONECTAR O LEER GOOGLE SHEETS")
+    st.exception(e)
+    st.stop()
+
+
+
 
 TZ = ZoneInfo("Europe/Madrid")
 START = date(2026, 7, 22)
