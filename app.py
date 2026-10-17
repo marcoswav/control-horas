@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Control horas work", page_icon="⏱️", layout="wide")
+st.set_page_config(page_title="Control horas work", page_icon="https://cdn-icons-png.flaticon.com/512/194/194978.png", layout="wide")
 st.markdown('''<style>
 html,body,[class*="css"]{font-size:18px!important}
 [data-testid="stMetricValue"]{font-size:1.8rem!important}
@@ -362,19 +362,6 @@ except Exception as exc:
     st.info("Comprueba el ID de la hoja, las credenciales y los permisos de la cuenta de servicio. No se han modificado tus datos.")
     st.stop()
 
-actions_a, actions_b = st.columns(2)
-with actions_a:
-    if st.button("🔄 Recargar Google Sheets"):
-        refresh()
-with actions_b:
-    if st.button("🛠 Reparar formato y motivos de la hoja"):
-        try:
-            repair_sheet(ws, records)
-            st.success("Formato y motivos corregidos. Recargando...")
-            refresh()
-        except Exception as exc:
-            st.error(f"No se pudo reparar la hoja: {exc}")
-
 st.divider()
 today = now().date()
 yesterday = today-timedelta(days=1)
@@ -458,14 +445,13 @@ with left:
     st.caption("Los objetivos semanales y mensuales se calculan hasta hoy; los días no laborables tienen meta 0 y aparecen completados.")
 
 with right:
-    st.markdown("### Horas a recuperar")
+    st.markdown("### Balance de horas")
     debt = expected_hist - worked_hist
-    pending = max(0, debt)
     progress = 1.0 if expected_hist <= 0 else min(1.0, worked_hist / expected_hist)
     st.progress(progress, text="Cumplimiento de horas obligatorias hasta ayer (incluido crédito anterior)")
     with st.container(border=True):
-        st.metric("Horas pendientes para estar al día", fmt(pending))
-        st.caption("Obligación desde el 22/07/2026; cuentan a favor todas las horas registradas hasta ayer, incluidas las anteriores al inicio.")
+        st.metric("Balance de horas (positivo: pendientes · negativo: a favor)", fmt(debt))
+        st.caption("Un valor positivo indica horas pendientes; uno negativo indica horas a favor. Se incluyen las horas anteriores al 22/07.")
     # Diagnóstico opcional, sin segundo saldo en la tarjeta de deuda.
     with st.expander("Comprobar cómo se calcula la deuda"):
         st.write(f"Obligatorias hasta ayer: **{fmt(expected_hist)}**")
@@ -520,6 +506,24 @@ with right:
                 refresh()
             except Exception as exc:
                 st.error(f"Error guardando historial: {exc}. Revisa la hoja antes de reintentar.")
+
+st.divider()
+st.markdown("### Herramientas de Google Sheets")
+actions_a, actions_b, actions_c = st.columns(3)
+with actions_a:
+    if st.button("🔄 Recargar Google Sheets", use_container_width=True):
+        refresh()
+with actions_b:
+    spreadsheet_id = st.secrets.get("spreadsheet_id", "1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E")
+    st.link_button("📊 Google Sheets", f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit", use_container_width=True)
+with actions_c:
+    if st.button("🛠 Reparar formato y motivos de la hoja", use_container_width=True):
+        try:
+            repair_sheet(ws, records)
+            st.success("Formato y motivos corregidos. Recargando...")
+            refresh()
+        except Exception as exc:
+            st.error(f"No se pudo reparar la hoja: {exc}")
 
 if state[1]:
     time.sleep(1)
