@@ -121,7 +121,10 @@ def holiday_name(day):
     except Exception:
         return ""
 
+st.success("PASO 4: Funciones iniciales cargadas")
 
 def default_workday(day):
     if day < START:
         return False, "Anterior al inicio"
+
+st.success("PASO 5: Se ha ejecutado todo el código de la aplicación")
