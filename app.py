@@ -56,12 +56,12 @@ def date_parse(value):
     return None
 
 
-def seconds_parse(value):
+def seconds_parse(value, sheet_duration=True):
     """Sheets formatted duration, legacy decimal hours, or timedelta."""
     if isinstance(value, timedelta):
         return max(0, round(value.total_seconds()))
     if isinstance(value, (float, int)):
-        return max(0, round(float(value) * 3600))
+        return max(0, round(float(value) * (86400 if sheet_duration else 3600)))
     s = str(value or "").strip().lower().replace("'", "")
     if not s:
         return 0
@@ -73,7 +73,7 @@ def seconds_parse(value):
     if match:
         return int(match.group(1))*3600 + int(match.group(2) or 0)*60
     try:
-        return max(0, round(float(s.replace(",", "."))*3600))
+        return max(0, round(float(s.replace(",", ".")) * (86400 if sheet_duration else 3600)))
     except ValueError:
         raise ValueError(f"Duración no reconocida: {value!r}")
 
@@ -129,6 +129,7 @@ def read_records(ws):
     if rows[0][0].strip().lower() != "fecha":
         raise ValueError("La columna A debe tener la cabecera 'Fecha'.")
     records, invalid = {}, []
+    is_duration_sheet = len(rows[0]) > 1 and "trabajadas" in rows[0][1].lower()
     for idx, row in enumerate(rows[1:], start=2):
         if not row or not row[0].strip():
             continue
@@ -137,9 +138,12 @@ def read_records(ws):
             invalid.append(f"Fila {idx}: fecha {row[0]!r}")
             continue
         try:
-            seconds = seconds_parse(row[1] if len(row)>1 else "")
+            seconds = seconds_parse(row[1] if len(row)>1 else "", sheet_duration=is_duration_sheet)
         except ValueError as e:
             invalid.append(f"Fila {idx}: {e}")
+            continue
+        if seconds > 24 * 3600:
+            invalid.append(f"Fila {idx}: duración de {fmt(seconds)}; revisa el formato de la columna B")
             continue
         flag = (row[2].strip().lower() if len(row)>2 else "")
         default, reason = default_workday(d)
@@ -150,6 +154,9 @@ def read_records(ws):
         else:
             work = default
         note = row[5].strip() if len(row)>5 else ""
+        # El motivo anterior al inicio no puede corresponder a octubre de 2026.
+        if d >= START and note.lower().startswith("anterior al inicio"):
+            note = reason
         if d in records:
             records[d]["seconds"] += seconds
             invalid.append(f"Fecha duplicada {d:%d/%m/%Y}: horas sumadas; revisar hoja")
@@ -161,7 +168,7 @@ def read_records(ws):
 def sheet_row(day, record, index):
     work = record["work"]
     # Sheets duration numeric serial (days), NOT decimal hours.
-    return ["'" + day.strftime("%d/%m/%Y"), record["seconds"] / 86400, "Sí" if work else "No",
+    return [(day - date(1899, 12, 30)).days, record["seconds"] / 86400, "Sí" if work else "No",
             f'=IF(C{index}="Sí",TIME(4,36,0),0)',
             f'=IF(G{index}<0,"-","+")&TEXT(ABS(G{index})/1440,"[h]:mm")',
             record.get("note", ""), f"=ROUND((B{index}-D{index})*1440,0)"]
@@ -195,11 +202,57 @@ def ensure_sheet(ws, records, warnings):
 
 
 def format_columns(ws, last_row):
+    """Uniformar toda la tabla, con desplegables, colores y formatos en Sheets."""
     if last_row < 2:
         return
-    ws.format(f"A2:A{last_row}", {"numberFormat": {"type": "TEXT"}})
-    for col in ("B", "D"):
-        ws.format(f"{col}2:{col}{last_row}", {"numberFormat": {"type": "TIME", "pattern": "[h]:mm:ss"}})
+    sheet_id = ws.id
+    # Usar batch_update para aplicar formato y validaciones de una sola vez.
+    requests = []
+    def repeat(start_row, end_row, start_col, end_col, fmt, fields="userEnteredFormat"):
+        requests.append({"repeatCell": {
+            "range": {"sheetId": sheet_id, "startRowIndex": start_row,
+                      "endRowIndex": end_row, "startColumnIndex": start_col,
+                      "endColumnIndex": end_col},
+            "cell": {"userEnteredFormat": fmt},
+            "fields": fields}})
+
+    repeat(0, 1, 0, 7, {"backgroundColor": {"red": 0.10, "green": 0.16, "blue": 0.28},
+                         "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}}})
+    # El formato de la fecha se mantiene como fecha real (número de serie de Sheets).
+    base = {"backgroundColor": {"red": 1, "green": 1, "blue": 1},
+            "verticalAlignment": "MIDDLE"}
+    repeat(1, last_row, 0, 7, base)
+    for row in range(2, last_row, 2):
+        repeat(row, min(row+1, last_row), 0, 7,
+               {"backgroundColor": {"red": .94, "green": .96, "blue": .99},
+                "verticalAlignment": "MIDDLE"})
+    # Formatos por columna, después de los fondos.
+    repeat(1, last_row, 0, 1, {"numberFormat": {"type": "DATE", "pattern": "dd/mm/yyyy"}}, "userEnteredFormat.numberFormat")
+    for col in (1, 3):
+        repeat(1, last_row, col, col+1,
+               {"numberFormat": {"type": "TIME", "pattern": "[h]:mm:ss"}}, "userEnteredFormat.numberFormat")
+    requests.append({"setDataValidation": {
+        "range": {"sheetId": sheet_id, "startRowIndex": 1,
+                  "endRowIndex": ws.row_count, "startColumnIndex": 2, "endColumnIndex": 3},
+        "rule": {"condition": {"type": "ONE_OF_LIST", "values": [
+            {"userEnteredValue": "Sí"}, {"userEnteredValue": "No"}]},
+            "strict": True, "showCustomUi": True}}})
+    requests.append({"updateDimensionProperties": {
+        "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 6, "endIndex": 7},
+        "properties": {"hiddenByUser": True}, "fields": "hiddenByUser"}})
+    ws.spreadsheet.batch_update({"requests": requests})
+
+
+def repair_sheet(ws, records):
+    """Reescribir solo la tabla conocida tras lectura validada; no toca I:J."""
+    ordered = sorted(d for d in records if d <= now().date())
+    if not ordered:
+        return
+    values = [HEADERS] + [sheet_row(d, records[d], idx)
+                          for idx, d in enumerate(ordered, start=2)]
+    ws.update(range_name=f"A1:G{len(values)}", values=values,
+              value_input_option="USER_ENTERED")
+    format_columns(ws, len(values))
 
 
 def save_day(ws, records, day, seconds=None, work=None, note=None):
@@ -307,8 +360,18 @@ except Exception as exc:
     st.info("Comprueba el ID de la hoja, las credenciales y los permisos de la cuenta de servicio. No se han modificado tus datos.")
     st.stop()
 
-if st.button("🔄 Recargar Google Sheets"):
-    refresh()
+actions_a, actions_b = st.columns(2)
+with actions_a:
+    if st.button("🔄 Recargar Google Sheets"):
+        refresh()
+with actions_b:
+    if st.button("🛠 Reparar formato y motivos de la hoja"):
+        try:
+            repair_sheet(ws, records)
+            st.success("Formato y motivos corregidos. Recargando...")
+            refresh()
+        except Exception as exc:
+            st.error(f"No se pudo reparar la hoja: {exc}")
 
 st.divider()
 today = now().date()
@@ -394,21 +457,25 @@ with left:
 
 with right:
     st.markdown("### Horas a recuperar")
-    st.progress(1.0 if expected_hist==0 else min(1.0,worked_hist/expected_hist),
-                text=f"Hasta ayer · {fmt(worked_hist)} trabajadas / {fmt(expected_hist)} obligatorias")
+    debt = expected_hist - worked_hist
+    pending = max(0, debt)
+    progress = 1.0 if expected_hist <= 0 else min(1.0, worked_hist / expected_hist)
+    st.progress(progress, text="Cumplimiento de horas obligatorias hasta ayer")
     with st.container(border=True):
-        debt=expected_hist-worked_hist
-        st.metric("Deuda oficial hasta ayer" if debt>=0 else "Horas a favor hasta ayer",fmt(abs(debt)))
-        st.caption("Deuda negativa significa saldo a favor. El trabajo de hoy se incorpora mañana.")
-        provisional=worked_provisional-expected_provisional
-        st.metric("Balance provisional incluyendo hoy",("+" if provisional>=0 else "−")+fmt(abs(provisional)))
-        with st.popover("Detalles por mes"):
-            months=sorted({(d.year,d.month) for d in records if START<=d<=yesterday})
-            for year,month in months:
-                a=max(START,date(year,month,1))
-                b=min(yesterday,date(year,month,calendar.monthrange(year,month)[1]))
-                balance=total(records,a,b)-total(records,a,b,"target")
-                st.write(f"**{MONTHS[month].capitalize()} {year}:** {'+' if balance>=0 else '−'}{fmt(abs(balance))}")
+        st.metric("Horas pendientes para estar al día", fmt(pending))
+        st.caption("Calculado del 22/07/2026 hasta ayer. Si hay horas a favor, se muestran 0 pendientes.")
+    # Diagnóstico opcional, sin segundo saldo en la tarjeta de deuda.
+    with st.expander("Comprobar cómo se calcula la deuda"):
+        st.write(f"Obligatorias hasta ayer: **{fmt(expected_hist)}**")
+        st.write(f"Trabajadas desde el inicio hasta ayer: **{fmt(worked_hist)}**")
+        st.write("Deuda = obligatorias − trabajadas. Los días anteriores al 22/07/2026 no cuentan.")
+        months=sorted({(d.year,d.month) for d in records if START<=d<=yesterday})
+        for year,month in months:
+            a=max(START,date(year,month,1))
+            b=min(yesterday,date(year,month,calendar.monthrange(year,month)[1]))
+            m_expected=total(records,a,b,"target")
+            m_worked=total(records,a,b)
+            st.write(f"{MONTHS[month].capitalize()} {year}: objetivo {fmt(m_expected)}, trabajadas {fmt(m_worked)}")
 
     st.divider()
     st.subheader("Horas trabajadas anteriormente")
@@ -424,13 +491,13 @@ with right:
         data=[]
         for d in subset:
             r=records[d]
-            data.append({"Fecha":d.strftime("%d/%m/%Y"),"Laborable":r["work"],
+            data.append({"Fecha":d.strftime("%d/%m/%Y"),"Día": ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"][d.weekday()],"Laborable":r["work"],
                          "Horas":r["seconds"]//3600,"Minutos":(r["seconds"]%3600)//60,
                          "Objetivo":fmt(DAILY_SECONDS if r["work"] else 0),
                          "Trabajado":fmt(r["seconds"]),"Motivo":r.get("note","")})
         df=pd.DataFrame(data)
         edited=st.data_editor(df,hide_index=True,use_container_width=True,key=f"editor_{year}_{month}",
-            disabled=["Fecha","Objetivo","Trabajado"],
+            disabled=["Fecha","Día","Objetivo","Trabajado"],
             column_config={"Laborable":st.column_config.CheckboxColumn("Laborable"),
                            "Horas":st.column_config.NumberColumn("Horas",min_value=0,max_value=1000,step=1),
                            "Minutos":st.column_config.NumberColumn("Minutos",min_value=0,max_value=59,step=1),
