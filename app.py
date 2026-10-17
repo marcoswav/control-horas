@@ -18,6 +18,8 @@ html,body,[class*="css"]{font-size:18px!important}
 [data-testid="stMetricValue"]{font-size:1.8rem!important}
 [data-testid="stMetricLabel"]{font-size:1.1rem!important}
 div[data-testid="stProgress"]>div>div>div{background-image:linear-gradient(90deg,#3b82f6,#1d4ed8,#60a5fa);background-size:200% 100%;animation:gradientAnimation 1.5s ease infinite;transition:width .6s ease-in-out}
+div[data-testid="stProgress"]:has([role="progressbar"][aria-valuenow="100"])>div>div>div,
+div[data-testid="stProgress"]:has([role="progressbar"][aria-valuenow="100.0"])>div>div>div{background-image:linear-gradient(90deg,#ec4899,#be185d,#f472b6)!important}
 @keyframes gradientAnimation{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
 </style>''', unsafe_allow_html=True)
 
@@ -384,9 +386,9 @@ worked_month = total(records,month_start,today)
 expected_today = total(records,today,today,"target")
 expected_week = total(records,week_start,today,"target")
 expected_month = total(records,month_start,today,"target")
-worked_hist = total(records,START,yesterday)
+worked_hist = sum(r["seconds"] for d,r in records.items() if d <= yesterday)
 expected_hist = total(records,START,yesterday,"target")
-worked_provisional = total(records,START,today)
+worked_provisional = sum(r["seconds"] for d,r in records.items() if d <= today)
 expected_provisional = total(records,START,today,"target")
 
 left,right = st.columns([1.1,.9])
@@ -460,15 +462,16 @@ with right:
     debt = expected_hist - worked_hist
     pending = max(0, debt)
     progress = 1.0 if expected_hist <= 0 else min(1.0, worked_hist / expected_hist)
-    st.progress(progress, text="Cumplimiento de horas obligatorias hasta ayer")
+    st.progress(progress, text="Cumplimiento de horas obligatorias hasta ayer (incluido crédito anterior)")
     with st.container(border=True):
         st.metric("Horas pendientes para estar al día", fmt(pending))
-        st.caption("Calculado del 22/07/2026 hasta ayer. Si hay horas a favor, se muestran 0 pendientes.")
+        st.caption("Obligación desde el 22/07/2026; cuentan a favor todas las horas registradas hasta ayer, incluidas las anteriores al inicio.")
     # Diagnóstico opcional, sin segundo saldo en la tarjeta de deuda.
     with st.expander("Comprobar cómo se calcula la deuda"):
         st.write(f"Obligatorias hasta ayer: **{fmt(expected_hist)}**")
-        st.write(f"Trabajadas desde el inicio hasta ayer: **{fmt(worked_hist)}**")
-        st.write("Deuda = obligatorias − trabajadas. Los días anteriores al 22/07/2026 no cuentan.")
+        st.write(f"Trabajadas hasta ayer, incluidas las anteriores al inicio: **{fmt(worked_hist)}**")
+        st.write(f"Horas a favor anteriores al 22/07/2026: **{fmt(total(records, min(records) if records else START, START - timedelta(days=1)))}**")
+        st.write("Deuda = obligatorias desde el 22/07 − todas las horas registradas hasta ayer. Las horas anteriores al 22/07 reducen la deuda.")
         months=sorted({(d.year,d.month) for d in records if START<=d<=yesterday})
         for year,month in months:
             a=max(START,date(year,month,1))
