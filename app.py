@@ -87,6 +87,25 @@ def fmt(seconds):
     return f"{sign}{minutes//60} h {minutes%60:02d} min"
 
 
+def fmt_editable_duration(seconds):
+    """Duracion editable en el historial: horas:minutos."""
+    minutes = round(max(0, seconds) / 60)
+    return f"{minutes // 60}:{minutes % 60:02d}"
+
+
+def parse_editable_duration(value):
+    """Acepta H:MM, HH:MM o H:MM:SS; no interpreta decimales ambiguos."""
+    if not isinstance(value, str):
+        raise ValueError("Escribe la duracion como H:MM, por ejemplo 5:30.")
+    match = re.fullmatch(r"\s*(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?\s*", value)
+    if not match:
+        raise ValueError("Formato incorrecto. Usa H:MM (por ejemplo 5:30).")
+    h, m, sec = (int(part or 0) for part in match.groups())
+    if h > 24 or m > 59 or sec > 59 or (h == 24 and (m or sec)):
+        raise ValueError("La duracion debe estar entre 0:00 y 24:00.")
+    return h * 3600 + m * 60 + sec
+
+
 def fmt_clock(seconds):
     seconds = max(0, int(seconds))
     return f"{seconds//3600} h : {(seconds%3600)//60:02d} min : {seconds%60:02d} seg"
@@ -484,7 +503,7 @@ with right:
             data.append({"Fecha":d.strftime("%d/%m/%Y"),"Día": ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"][d.weekday()],"Laborable":r["work"],
                          "Horas":r["seconds"]//3600,"Minutos":(r["seconds"]%3600)//60,
                          "Objetivo":fmt(DAILY_SECONDS if r["work"] else 0),
-                         "Trabajado":fmt(r["seconds"]),"Motivo":r.get("note","")})
+                         "Trabajado":fmt_editable_duration(r["seconds"]),"Motivo":r.get("note","")})
         df=pd.DataFrame(data)
         # Column layout is a deliberate, persistent setting, not Streamlit's
         # temporary drag/hide state (which data_editor does not expose to Python).
@@ -566,15 +585,25 @@ with right:
                     current = latest.get(d)
                     if current is None or current != original:
                         raise ValueError(f"El día {d:%d/%m/%Y} cambió en Google Sheets. Recarga antes de editarlo.")
-                    if any(c not in ("Laborable", "Horas", "Minutos", "Motivo") for c in patch):
+                    if any(c not in ("Laborable", "Horas", "Minutos", "Trabajado", "Motivo") for c in patch):
                         raise ValueError("Se intentó modificar una columna de solo lectura.")
-                    hours = patch.get("Horas", df.iloc[idx]["Horas"])
-                    minutes = patch.get("Minutos", df.iloc[idx]["Minutos"])
-                    if isinstance(hours, bool) or isinstance(minutes, bool):
-                        raise ValueError("Las horas y los minutos deben ser números enteros.")
-                    h, m = int(hours), int(minutes)
-                    if h != float(hours) or m != float(minutes) or not (0 <= h <= 24 and 0 <= m <= 59) or h*60+m > 1440:
-                        raise ValueError("La duración debe estar entre 0:00 y 24:00, con minutos entre 0 y 59.")
+                    if "Trabajado" in patch:
+                        seconds = parse_editable_duration(patch["Trabajado"])
+                    elif "Horas" not in patch and "Minutos" not in patch:
+                        seconds = original["seconds"]
+                    else:
+                        hours = patch.get("Horas", df.iloc[idx]["Horas"])
+                        minutes = patch.get("Minutos", df.iloc[idx]["Minutos"])
+                        if isinstance(hours, bool) or isinstance(minutes, bool):
+                            raise ValueError("Las horas y los minutos deben ser numeros enteros.")
+                        try:
+                            h, m = int(hours), int(minutes)
+                            valid = (h == float(hours) and m == float(minutes))
+                        except (TypeError, ValueError, OverflowError):
+                            valid = False
+                        if not valid or not (0 <= h <= 24 and 0 <= m <= 59) or h*60+m > 1440:
+                            raise ValueError("La duración debe estar entre 0:00 y 24:00, con minutos entre 0 y 59.")
+                        seconds = h*3600 + m*60
                     work = patch.get("Laborable", original["work"])
                     if not isinstance(work, bool):
                         raise ValueError("El valor Laborable debe ser Sí o No.")
@@ -584,7 +613,6 @@ with right:
                     note = str(note)
                     if len(note) > 1000:
                         raise ValueError("El motivo no puede superar 1000 caracteres.")
-                    seconds = h*3600 + m*60
                     if seconds != original["seconds"] or work != original["work"] or note != original.get("note", ""):
                         changes.append((d, seconds, work, note))
                 for d, seconds, work, note in changes:
@@ -600,15 +628,16 @@ with right:
         st.data_editor(df,hide_index=True,use_container_width=True,key=editor_key,
             column_order=st.session_state[layout_key],
             on_change=autosave_history,
-            disabled=["Fecha","Día","Objetivo","Trabajado"],
+            disabled=["Fecha","Día","Objetivo"],
             column_config={"Laborable":st.column_config.CheckboxColumn("Laborable"),
                            "Horas":st.column_config.NumberColumn("Horas",min_value=0,max_value=24,step=1),
                            "Minutos":st.column_config.NumberColumn("Minutos",min_value=0,max_value=59,step=1),
+                           "Trabajado":st.column_config.TextColumn("Trabajado (H:MM)", help="Edita el total del día, por ejemplo 5:30. Se sustituye el total anterior y se guarda en Google Sheets."),
                            "Motivo":st.column_config.TextColumn("Motivo")})
         if "autosave_notice" in st.session_state:
             level, msg = st.session_state.pop("autosave_notice")
             (st.success if level == "success" else st.error)(msg)
-        st.caption("Los cambios se guardan al confirmar cada edición. Para conservar columnas ocultas o reordenadas, usa «Personalizar columnas».")
+        st.caption("Edita «Trabajado» con formato H:MM para corregir el total del día. También puedes editar Horas y Minutos. Los cambios se guardan al confirmar la celda. Los nuevos registros manuales y del cronómetro se SUMAN a las horas existentes. Para conservar columnas ocultas o reordenadas, usa «Personalizar columnas».")
 
 st.divider()
 st.markdown("### Herramientas de Google Sheets")
