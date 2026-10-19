@@ -478,6 +478,63 @@ with left:
             plt.close(fig)
     st.caption("Los objetivos de semana y mes incluyen el periodo completo; se descuentan festivos y días no laborables. El balance de deuda sigue calculándose solo hasta ayer.")
 
+# Plan de recuperacion: se recalcula con el saldo REAL de la hoja en cada carga.
+DEADLINE = date(2026, 12, 15)
+SATURDAY_LIMIT = 2 * 3600
+PLAN_STEP = 5 * 60
+
+
+def planned_workday(day, records):
+    """No planificar domingos, festivos ni dias marcados no laborables."""
+    if day.weekday() == 6 or holiday_name(day):
+        return False
+    if day.weekday() == 5:
+        return True  # Sabados opcionales: maximo dos horas.
+    return records[day]["work"] if day in records else default_workday(day)[0]
+
+
+def recovery_plan(records, today, deadline, historical_debt):
+    """Plan sin duplicar las horas ya registradas hoy o anteriormente."""
+    if today > deadline:
+        return None
+    days = date_range(today, deadline)
+    # Deuda hasta ayer + obligaciones desde hoy hasta la fecha limite.
+    future_obligation = sum(DAILY_SECONDS for d in days
+                            if (records[d]["work"] if d in records else default_workday(d)[0]))
+    already_worked = sum(records.get(d, {}).get("seconds", 0) for d in days)
+    required = max(0, historical_debt + future_obligation - already_worked)
+    weekdays = [d for d in days if d.weekday() < 5 and planned_workday(d, records)]
+    saturdays = [d for d in days if d.weekday() == 5 and planned_workday(d, records)]
+    saturday_capacity = len(saturdays) * SATURDAY_LIMIT
+    weekday_target = (max(0, required - saturday_capacity) + len(weekdays) - 1) // len(weekdays) if weekdays else 0
+    weekday_target = ((weekday_target + PLAN_STEP - 1) // PLAN_STEP) * PLAN_STEP
+    # El sabado solo se usa si hace falta para llegar a la fecha limite.
+    remaining_after_weekdays = max(0, required - weekday_target * len(weekdays))
+    saturday_target = min(SATURDAY_LIMIT, ((remaining_after_weekdays + len(saturdays) - 1) // len(saturdays) + PLAN_STEP - 1) // PLAN_STEP * PLAN_STEP) if saturdays and remaining_after_weekdays else 0
+    planned = []
+    for d in days:
+        worked = records.get(d, {}).get("seconds", 0)
+        if d.weekday() == 6:
+            target, label = 0, "Domingo libre"
+        elif holiday_name(d):
+            target, label = 0, "Festivo: " + holiday_name(d)
+        elif not planned_workday(d, records):
+            target, label = 0, "No laborable / vacaciones"
+        elif d.weekday() == 5:
+            target, label = saturday_target, "Sabado (max. 2 h)"
+        else:
+            target, label = weekday_target, "Lunes a viernes"
+        pending = max(0, target - worked)
+        planned.append({"Fecha": d.strftime("%d/%m/%Y"),
+                        "Dia": ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"][d.weekday()],
+                        "Horario recomendado": ("09:00-12:30 / 13:15-" + (datetime(2026, 1, 1, 13, 15) + timedelta(seconds=max(0, target - 3*3600 - 30*60))).strftime("%H:%M")) if d.weekday() < 5 and target >= 3*3600+30*60 else ("10:00-" + (datetime(2026, 1, 1, 10) + timedelta(seconds=target)).strftime("%H:%M") if target else "Descanso"),
+                        "Objetivo": fmt(target), "Registrado": fmt(worked),
+                        "Pendiente": fmt(pending), "Tipo": label,
+                        "_target": target, "_worked": worked})
+    capacity = sum(x["_target"] for x in planned)
+    return planned, required, weekday_target, saturday_target, capacity
+
+
 with right:
     st.markdown("### Balance de horas")
     debt = expected_hist - worked_hist
@@ -652,6 +709,34 @@ with right:
             level, msg = st.session_state.pop("autosave_notice")
             (st.success if level == "success" else st.error)(msg)
         st.caption("Edita «Trabajado» con formato H:MM para corregir el total del día. También puedes editar Horas y Minutos. Los cambios se guardan al confirmar la celda. Los nuevos registros manuales y del cronómetro se SUMAN a las horas existentes. Para conservar columnas ocultas o reordenadas, usa «Personalizar columnas».")
+
+st.divider()
+st.markdown("### Horario para saldar la deuda")
+st.caption("Fecha limite: 15/12/2026 · Sabados como maximo 2 h · Domingos y festivos sin trabajo. Se actualiza con los registros de Google Sheets.")
+plan = recovery_plan(records, today, DEADLINE, debt)
+if plan is None:
+    st.info("La fecha limite del 15/12/2026 ya ha pasado. Este plan no programa trabajo retroactivo.")
+else:
+    planned_days, required_seconds, weekday_seconds, saturday_seconds, capacity_seconds = plan
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Horas por recuperar desde hoy", fmt(required_seconds))
+    p2.metric("Objetivo de lunes a viernes", fmt(weekday_seconds))
+    p3.metric("Objetivo de sabado", fmt(saturday_seconds))
+    if capacity_seconds < required_seconds:
+        st.error("Con los dias disponibles y un maximo de 2 h los sabados, no es posible saldar toda la deuda antes del 15 de diciembre. Revisa los dias disponibles o aumenta las horas entre semana.")
+    elif required_seconds == 0:
+        st.success("Ya tienes cubiertas las horas necesarias hasta el 15 de diciembre, segun los registros actuales.")
+    else:
+        st.success(f"Si cumples este plan, cubriras las horas pendientes antes del 15 de diciembre. Margen estimado: {fmt(capacity_seconds-required_seconds)}.")
+    st.caption("El objetivo de cada dia es el TOTAL que debes registrar, no horas adicionales a lo ya trabajado. La columna Pendiente descuenta automaticamente las horas registradas.")
+    view = st.radio("Mostrar calendario", ["Por semanas", "Todos los dias"], horizontal=True, key="recovery_view")
+    visible_plan = planned_days
+    if view == "Por semanas":
+        weeks = sorted({(date_parse(x["Fecha"]) - timedelta(days=date_parse(x["Fecha"]).weekday())).isoformat() for x in planned_days})
+        selected_week = st.selectbox("Semana que quieres consultar", weeks, format_func=lambda w: f"Semana del {date.fromisoformat(w):%d/%m/%Y}")
+        visible_plan = [x for x in planned_days if (date_parse(x["Fecha"]) - timedelta(days=date_parse(x["Fecha"]).weekday())).isoformat() == selected_week]
+    st.dataframe(pd.DataFrame([{k: v for k, v in row.items() if not k.startswith("_")} for row in visible_plan]), hide_index=True, use_container_width=True)
+    st.caption("Los festivos se detectan segun el calendario de Granada/Andalucia. Si marcas vacaciones o dias no laborables en el historial, el plan los excluira al recargar.")
 
 st.divider()
 st.markdown("### Herramientas de Google Sheets")
