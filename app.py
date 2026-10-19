@@ -386,13 +386,27 @@ st.divider()
 today = now().date()
 yesterday = today-timedelta(days=1)
 week_start = today-timedelta(days=today.weekday())
+week_end = week_start + timedelta(days=6)
 month_start = today.replace(day=1)
+month_end = date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+
+def full_period_target(records, first, last):
+    """Objetivo de todo el periodo, incluso para fechas futuras sin fila en Sheets."""
+    target_seconds = 0
+    for day in date_range(max(first, START), last):
+        if day in records:
+            is_workday = records[day]["work"]
+        else:
+            is_workday, _ = default_workday(day)
+        if is_workday:
+            target_seconds += DAILY_SECONDS
+    return target_seconds
 worked_today = total(records,today,today)
 worked_week = total(records,week_start,today)
 worked_month = total(records,month_start,today)
 expected_today = total(records,today,today,"target")
-expected_week = total(records,week_start,today,"target")
-expected_month = total(records,month_start,today,"target")
+expected_week = full_period_target(records,week_start,week_end)
+expected_month = full_period_target(records,month_start,month_end)
 worked_hist = sum(r["seconds"] for d,r in records.items() if d <= yesterday)
 expected_hist = total(records,START,yesterday,"target")
 worked_provisional = sum(r["seconds"] for d,r in records.items() if d <= today)
@@ -462,7 +476,7 @@ with left:
             fig=plot_ring(actual,target)
             st.pyplot(fig,use_container_width=True)
             plt.close(fig)
-    st.caption("Los objetivos semanales y mensuales se calculan hasta hoy; los días no laborables tienen meta 0 y aparecen completados.")
+    st.caption("Los objetivos de semana y mes incluyen el periodo completo; se descuentan festivos y días no laborables. El balance de deuda sigue calculándose solo hasta ayer.")
 
 with right:
     st.markdown("### Balance de horas")
