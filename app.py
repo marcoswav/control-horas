@@ -5,6 +5,9 @@ import calendar
 import json
 import re
 import time
+import tempfile
+from pathlib import Path
+import streamlit.components.v1 as components
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -710,33 +713,134 @@ with right:
             (st.success if level == "success" else st.error)(msg)
         st.caption("Edita «Trabajado» con formato H:MM para corregir el total del día. También puedes editar Horas y Minutos. Los cambios se guardan al confirmar la celda. Los nuevos registros manuales y del cronómetro se SUMAN a las horas existentes. Para conservar columnas ocultas o reordenadas, usa «Personalizar columnas».")
 
+TIMELINE_HTML = '<!doctype html><html lang="es"><head><meta charset="utf-8"><style>\n*{box-sizing:border-box}body{font:15px system-ui,sans-serif;color:var(--fg,#222);margin:0;padding:8px 4px}button{cursor:pointer;border:1px solid #a9b4c5;background:#fff;color:#172334;border-radius:8px;padding:9px 12px;font-size:14px}button:disabled{opacity:.4;cursor:default}.top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:13px}.axis{display:flex;justify-content:space-between;font-size:11px;color:#64748b}.track{height:50px;position:relative;border-radius:9px;background:#e8edf4;touch-action:none;margin:6px 0 12px;overflow:visible}.slot{position:absolute;top:7px;height:36px;background:#3b82f6;border-radius:6px;cursor:grab;touch-action:none;min-width:5px}.slot.active{background:#1d4ed8;box-shadow:0 0 0 2px #93c5fd}.handle{position:absolute;top:-5px;width:11px;height:46px;border-radius:5px;background:#1e40af;cursor:ew-resize;touch-action:none}.handle.left{left:-5px}.handle.right{right:-5px}.slotlabel{pointer-events:none;text-align:center;line-height:36px;color:white;font-size:11px;white-space:nowrap;overflow:hidden;padding:0 9px}.actions{display:flex;gap:8px;flex-wrap:wrap}.total{font-size:20px;font-weight:750}.muted{color:#64748b;font-size:12px}.items{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0}.chip{padding:5px 9px;font-size:12px}.chip.active{border-color:#2563eb;color:#1d4ed8;background:#eff6ff}.error{color:#b91c1c;font-size:12px;margin:5px 0}.foot{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}\n</style></head><body><div class="top"><strong>Franjas de trabajo</strong><span class="total" id="total"></span></div><div class="axis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div><div id="track" class="track"></div><div class="items" id="items"></div><div class="actions"><button id="add">＋ Añadir franja</button><button id="remove">Eliminar franja seleccionada</button><button id="reset">Restablecer día</button></div><div class="foot"><span class="muted">Arrastra los bloques para moverlos y sus extremos para ajustar la duración (cada 15 min).</span><button id="default">Usar como horario habitual</button></div><div id="error" class="error"></div>\n<script>\nlet slots=[],active=-1,readonly=false,day=\'\',initialized=false,drag=null,base=[];const $=id=>document.getElementById(id);const fmt=n=>String(Math.floor(n/4)).padStart(2,\'0\')+\':\'+String(n%4*15).padStart(2,\'0\');const total=()=>slots.reduce((a,s)=>a+s[1]-s[0],0);const valid=arr=>Array.isArray(arr)&&arr.every(s=>Array.isArray(s)&&s.length===2&&Number.isInteger(s[0])&&Number.isInteger(s[1])&&s[0]>=0&&s[1]<=96&&s[0]<s[1])&&arr.every((s,i)=>arr.every((t,j)=>i===j||s[1]<=t[0]||t[1]<=s[0]));\nfunction emit(mode){window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:setComponentValue\',value:{day,slots:slots.map(s=>s.slice()),mode}},\'*\')}\nfunction draw(){slots.sort((a,b)=>a[0]-b[0]);$(\'track\').innerHTML=\'\';$(\'items\').innerHTML=\'\';slots.forEach((s,i)=>{let el=document.createElement(\'div\');el.className=\'slot\'+(active===i?\' active\':\'\');el.style.left=(s[0]/96*100)+\'%\';el.style.width=((s[1]-s[0])/96*100)+\'%\';el.innerHTML=\'<div class="handle left" data-edge="start"></div><div class="slotlabel">\'+fmt(s[0])+\'–\'+fmt(s[1])+\'</div><div class="handle right" data-edge="end"></div>\';el.addEventListener(\'pointerdown\',e=>{if(readonly)return;active=i;let edge=e.target.dataset.edge||\'move\';drag={i,edge,x:e.clientX,orig:s.slice(),pointer:e.pointerId};el.setPointerCapture(e.pointerId);drawActive();e.preventDefault()});el.addEventListener(\'pointermove\',e=>{if(!drag||drag.i!==i||drag.pointer!==e.pointerId)return;let width=$(\'track\').getBoundingClientRect().width;let delta=Math.round((e.clientX-drag.x)/width*96);let a=drag.orig.slice();if(drag.edge===\'start\')a[0]=Math.max(0,Math.min(a[1]-1,a[0]+delta));else if(drag.edge===\'end\')a[1]=Math.min(96,Math.max(a[0]+1,a[1]+delta));else{let length=a[1]-a[0];a[0]=Math.max(0,Math.min(96-length,a[0]+delta));a[1]=a[0]+length}let next=slots.map(v=>v.slice());next[i]=a;if(valid(next)){slots[i]=a;el.style.left=(a[0]/96*100)+\'%\';el.style.width=((a[1]-a[0])/96*100)+\'%\';el.querySelector(\'.slotlabel\').textContent=fmt(a[0])+\'–\'+fmt(a[1]);$(\'total\').textContent=fmt(total())+\' h\';$(\'error\').textContent=\'\'}});el.addEventListener(\'pointerup\',e=>{if(drag&&drag.i===i){drag=null;emit(\'day\');draw()}});el.addEventListener(\'pointercancel\',()=>{drag=null;draw()});$(\'track\').appendChild(el);let chip=document.createElement(\'button\');chip.className=\'chip\'+(active===i?\' active\':\'\');chip.textContent=fmt(s[0])+\'–\'+fmt(s[1]);chip.onclick=()=>{active=i;draw()};$(\'items\').appendChild(chip)});$(\'total\').textContent=fmt(total())+\' h\';$(\'remove\').disabled=readonly||active<0||active>=slots.length;$(\'add\').disabled=readonly;$(\'reset\').disabled=readonly;$(\'default\').disabled=readonly}\nfunction drawActive(){Array.from($(\'track\').children).forEach((el,i)=>el.classList.toggle(\'active\',i===active));Array.from($(\'items\').children).forEach((el,i)=>el.classList.toggle(\'active\',i===active));$(\'remove\').disabled=readonly||active<0}\n$(\'add\').onclick=()=>{for(let a=32;a<=92;a++){let candidate=[a,a+4];if(valid([...slots,candidate])){slots.push(candidate);active=slots.length-1;draw();emit(\'day\');return}}$(\'error\').textContent=\'No queda espacio libre para añadir una franja de una hora.\'};$(\'remove\').onclick=()=>{if(active<0)return;slots.splice(active,1);active=slots.length?0:-1;draw();emit(\'day\')};$(\'reset\').onclick=()=>{emit(\'reset\')};$(\'default\').onclick=()=>{emit(\'default\')};\nwindow.addEventListener(\'message\',e=>{if(e.data.type!==\'streamlit:render\')return;let args=e.data.args||{};if(!initialized||args.day!==day||args.revision!==window.revision){day=args.day;window.revision=args.revision;slots=(args.slots||[]).map(s=>s.slice());base=(args.base||[]).map(s=>s.slice());readonly=!!args.readonly;active=slots.length?0:-1;initialized=true;draw()}});window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:componentReady\',apiVersion:1},\'*\');window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:setFrameHeight\',height:260},\'*\');\n</script></body></html>\n'
+
+# Planificador visual: preferencias en M:N de la MISMA hoja.
+# No modifica las horas trabajadas ni las formulas de la tabla principal.
+def normalize_slots(value):
+    if not isinstance(value, list) or len(value) > 20:
+        raise ValueError("Numero de franjas incorrecto")
+    slots = []
+    for item in value:
+        if (not isinstance(item, list) or len(item) != 2 or
+                any(type(n) is not int for n in item)):
+            raise ValueError("Franja invalida")
+        a, b = item
+        if not 0 <= a < b <= 96:
+            raise ValueError("Franjas fuera del dia")
+        slots.append([a, b])
+    slots.sort()
+    if any(slots[i][1] > slots[i+1][0] for i in range(len(slots)-1)):
+        raise ValueError("Las franjas no pueden solaparse")
+    return slots
+
+
+def read_schedule(ws):
+    cells = ws.get("M1:N3")
+    data = {r[0]: r[1] for r in cells if len(r) > 1}
+    try:
+        base = normalize_slots(json.loads(data.get("Horario habitual", "[[36,50],[53,64]]")))
+        exceptions = json.loads(data.get("Excepciones", "{}"))
+        if not isinstance(exceptions, dict):
+            raise ValueError("Excepciones invalidas")
+        exceptions = {k: normalize_slots(v) for k,v in exceptions.items()}
+        return base, exceptions
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Horario guardado no valido: {exc}") from exc
+
+
+def write_schedule(ws, base, exceptions):
+    ws.update(range_name="M1:N3", values=[
+        ["Planificador", "v1"],
+        ["Horario habitual", json.dumps(base)],
+        ["Excepciones", json.dumps(exceptions, ensure_ascii=False)]],
+        value_input_option="RAW")
+
+
+def schedule_for_day(day, base, exceptions):
+    if day.isoformat() in exceptions:
+        return exceptions[day.isoformat()]
+    if day.weekday() == 6 or holiday_name(day):
+        return []
+    if day.weekday() == 5:
+        return [[40, 48]]  # Sabado 10:00-12:00
+    return base
+
+
+@st.cache_resource
+def timeline_component():
+    # HTML embebido en app.py para desplegar un unico archivo en GitHub.
+    folder = Path(tempfile.gettempdir()) / "control_horas_timeline_v1"
+    folder.mkdir(parents=True, exist_ok=True)
+    html = TIMELINE_HTML
+    (folder / "index.html").write_text(html, encoding="utf-8")
+    return components.declare_component("control_horas_timeline", path=str(folder))
+
+
 st.divider()
-st.markdown("### Horario para saldar la deuda")
-st.caption("Fecha limite: 15/12/2026 · Sabados como maximo 2 h · Domingos y festivos sin trabajo. Se actualiza con los registros de Google Sheets.")
-plan = recovery_plan(records, today, DEADLINE, debt)
-if plan is None:
-    st.info("La fecha limite del 15/12/2026 ya ha pasado. Este plan no programa trabajo retroactivo.")
+st.markdown("### Mi horario de trabajo")
+st.caption("Una sola barra de 24 horas. Arrastra una franja o sus extremos para cambiarla. Selecciona otra fecha para planificar mañana u otros días. Los cambios se guardan en Google Sheets, sin registrar horas trabajadas.")
+try:
+    schedule_base, schedule_exceptions = read_schedule(ws)
+except Exception as exc:
+    st.error(f"No se pudo leer el planificador: {exc}")
 else:
-    planned_days, required_seconds, weekday_seconds, saturday_seconds, capacity_seconds = plan
-    p1, p2, p3 = st.columns(3)
-    p1.metric("Horas por recuperar desde hoy", fmt(required_seconds))
-    p2.metric("Objetivo de lunes a viernes", fmt(weekday_seconds))
-    p3.metric("Objetivo de sabado", fmt(saturday_seconds))
-    if capacity_seconds < required_seconds:
-        st.error("Con los dias disponibles y un maximo de 2 h los sabados, no es posible saldar toda la deuda antes del 15 de diciembre. Revisa los dias disponibles o aumenta las horas entre semana.")
-    elif required_seconds == 0:
-        st.success("Ya tienes cubiertas las horas necesarias hasta el 15 de diciembre, segun los registros actuales.")
-    else:
-        st.success(f"Si cumples este plan, cubriras las horas pendientes antes del 15 de diciembre. Margen estimado: {fmt(capacity_seconds-required_seconds)}.")
-    st.caption("El objetivo de cada dia es el TOTAL que debes registrar, no horas adicionales a lo ya trabajado. La columna Pendiente descuenta automaticamente las horas registradas.")
-    view = st.radio("Mostrar calendario", ["Por semanas", "Todos los dias"], horizontal=True, key="recovery_view")
-    visible_plan = planned_days
-    if view == "Por semanas":
-        weeks = sorted({(date_parse(x["Fecha"]) - timedelta(days=date_parse(x["Fecha"]).weekday())).isoformat() for x in planned_days})
-        selected_week = st.selectbox("Semana que quieres consultar", weeks, format_func=lambda w: f"Semana del {date.fromisoformat(w):%d/%m/%Y}")
-        visible_plan = [x for x in planned_days if (date_parse(x["Fecha"]) - timedelta(days=date_parse(x["Fecha"]).weekday())).isoformat() == selected_week]
-    st.dataframe(pd.DataFrame([{k: v for k, v in row.items() if not k.startswith("_")} for row in visible_plan]), hide_index=True, use_container_width=True)
-    st.caption("Los festivos se detectan segun el calendario de Granada/Andalucia. Si marcas vacaciones o dias no laborables en el historial, el plan los excluira al recargar.")
+    chosen_day = st.date_input("Día del horario", value=today,
+                               min_value=date(2026, 1, 1),
+                               max_value=date(2027, 12, 31),
+                               key="schedule_date")
+    is_rest = bool(chosen_day.weekday() == 6 or holiday_name(chosen_day))
+    if is_rest:
+        st.info("Este día es domingo o festivo: se mantiene como descanso y no se puede programar trabajo.")
+    elif chosen_day.weekday() == 5:
+        st.caption("Sábado: máximo 2 horas en total.")
+    elif chosen_day in records and not records[chosen_day]["work"]:
+        st.warning("Este día figura como no laborable en el historial. El horario planificado no cambia esa condición.")
+    current_slots = schedule_for_day(chosen_day, schedule_base, schedule_exceptions)
+    # Un valor del componente se aplica solo una vez y solo a su fecha.
+    timeline = timeline_component()
+    revision = json.dumps([chosen_day.isoformat(), current_slots], ensure_ascii=False)
+    event = timeline(day=chosen_day.isoformat(), slots=current_slots,
+                     base=schedule_base, readonly=is_rest, revision=revision,
+                     key=f"timeline_{chosen_day.isoformat()}", default=None)
+    if event is not None and isinstance(event, dict):
+        signature = json.dumps(event, sort_keys=True)
+        event_key = f"schedule_last_event_{chosen_day.isoformat()}"
+        if st.session_state.get(event_key) != signature:
+            try:
+                if event.get("day") != chosen_day.isoformat():
+                    raise ValueError("La fecha del cambio no coincide")
+                mode = event.get("mode")
+                if mode not in ("day", "default", "reset"):
+                    raise ValueError("Operacion no reconocida")
+                if is_rest:
+                    raise ValueError("No se puede trabajar en festivos o domingos")
+                new_slots = normalize_slots(event.get("slots", []))
+                if chosen_day.weekday() == 5 and sum(b-a for a,b in new_slots) > 8:
+                    raise ValueError("Los sabados no pueden superar 2 horas")
+                # Comprobar que la configuracion no ha cambiado en otra sesion.
+                latest_base, latest_exceptions = read_schedule(ws)
+                if latest_base != schedule_base or latest_exceptions != schedule_exceptions:
+                    raise ValueError("El horario ha cambiado en Google Sheets. Recarga antes de editar.")
+                if mode == "default":
+                    schedule_base = new_slots
+                    schedule_exceptions.pop(chosen_day.isoformat(), None)
+                elif mode == "reset":
+                    schedule_exceptions.pop(chosen_day.isoformat(), None)
+                else:
+                    schedule_exceptions[chosen_day.isoformat()] = new_slots
+                write_schedule(ws, schedule_base, schedule_exceptions)
+                st.session_state[event_key] = signature
+                st.toast("Horario guardado en Google Sheets")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"No se pudo guardar el horario: {exc}")
+    st.caption("«Usar como horario habitual» aplica las franjas a los próximos días de lunes a viernes, salvo excepciones. «Restablecer día» elimina la excepción de la fecha elegida.")
+    if chosen_day <= DEADLINE:
+        plan = recovery_plan(records, today, DEADLINE, debt)
+        if plan is not None:
+            _, needed, _, _, _ = plan
+            st.caption(f"Para llegar al 15/12/2026, las horas pendientes estimadas desde hoy son {fmt(needed)}. El horario es orientativo; registra las horas reales por separado.")
 
 st.divider()
 st.markdown("### Herramientas de Google Sheets")
