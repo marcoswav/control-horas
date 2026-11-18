@@ -20,7 +20,7 @@ from caldav import DAVClient
 from icalendar import Calendar as ICalendar, Event as IEvent
 from uuid import uuid4
 import hashlib
-TIMELINE_HTML = '<!doctype html><html lang="es"><head><meta charset="utf-8"><style>\n*{box-sizing:border-box}body{margin:0;padding:3px;font:13px system-ui,-apple-system,Segoe UI,sans-serif;color:#eef2ff;background:transparent}.panel{padding:16px;border:1px solid rgba(200,214,255,.24);border-radius:18px;background:linear-gradient(145deg,rgba(38,49,77,.88),rgba(17,26,47,.92));box-shadow:0 10px 28px #0003;backdrop-filter:blur(16px)}.heading{display:flex;justify-content:space-between;gap:12px;align-items:center}.heading strong{font-size:15px}.muted,.axis,.status,.data span{color:#b4c1d9;font-size:11px}.total{font-size:20px;font-weight:750;color:#fff}.axis{display:flex;justify-content:space-between;margin:17px 0 8px;font-size:10px}.track{position:relative;height:46px;border-radius:11px;background:#08090d;border:1px solid rgba(185,204,245,.16);touch-action:none}.slot{position:absolute;top:5px;height:34px;border-radius:7px;overflow:visible;cursor:grab;touch-action:none;box-shadow:0 3px 10px #0004;border:1px solid #ffffff24}.slot.planned{background:linear-gradient(115deg,#2563eb,#60a5fa)}.slot.real{background:linear-gradient(120deg,#be185d,#ec4899)}.slot.active{outline:2px solid #fff;outline-offset:2px;z-index:3}.handle{position:absolute;top:1px;width:10px;height:30px;background:rgba(255,255,255,.72);border-radius:3px;cursor:ew-resize;touch-action:none}.handle.left{left:0}.handle.right{right:0}.slotlabel{text-align:center;line-height:32px;color:#fff;font-size:10px;white-space:nowrap;overflow:hidden;padding:0 10px;pointer-events:none}.legend{display:flex;gap:16px;flex-wrap:wrap;margin:10px 0;font-size:11px}.swatch{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px}.chips{display:flex;gap:6px;flex-wrap:wrap;min-height:32px;margin:10px 0}.chip,button{cursor:pointer;font:12px system-ui,sans-serif;color:#eef2ff;background:rgba(42,56,87,.88);border:1px solid rgba(184,202,242,.26);border-radius:10px;padding:7px 10px}.chip.active{border-color:#bfdbfe}.chip.real.active{border-color:#f9a8d4}button:disabled{opacity:.45;cursor:default}.actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.save{background:linear-gradient(120deg,#2563eb,#3b82f6);color:#fff;font-weight:650}.status{margin-top:10px;min-height:16px;font-size:11px}.error{color:#fda4af;font-size:11px;min-height:15px}.data{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px}.data strong{display:block;font-size:16px}.data span{font-size:11px}button:focus-visible{outline:2px solid #f472b6;outline-offset:2px}@media(max-width:480px){.panel{padding:11px}.heading{align-items:flex-start}.total{font-size:17px}.slotlabel{font-size:9px}}@media(prefers-reduced-motion:reduce){button,.chip{transition:none}}\n</style></head><body><div class="panel"><div class="heading"><div><strong>Franjas del día</strong><div class="muted">Azul: planificado · Rosa: realizado · ambos editables</div></div><div style="text-align:right"><div id="total" class="total">0 h 00 min</div><div class="muted">Total de franjas</div></div></div><div class="axis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div><div id="track" class="track"></div><div class="legend"><span><i class="swatch" style="background:#ec4899"></i>Realizado (editable)</span><span><i class="swatch" style="background:#3b82f6"></i>Planificado (editable)</span></div><div id="chips" class="chips"></div><div class="actions"><button id="addPlanned">+ Planificar (azul)</button><button id="addReal">+ Realizado (rosa)</button><button id="remove">− Eliminar selección</button><button id="reset">Vaciar planificadas</button><button id="save" class="save">Guardar cambios</button></div><div class="data"><div><span>Horas registradas en Sheets</span><strong id="worked">0 h 00 min</strong></div><div><span>Objetivo pendiente</span><strong id="pending">0 h 00 min</strong></div><div><span>Franjas rosas</span><strong id="realtotal">0 h 00 min</strong></div><div><span>Franjas azules</span><strong id="plannedtotal">0 h 00 min</strong></div></div><div id="status" class="status">Sin cambios pendientes</div><div id="error" class="error"></div></div>\n<script>\nlet planned=[],real=[],active=null,day=\'\',revision=\'\',initialized=false,readonly=false,maxMinutes=1440,dirty=false,drag=null;\nconst $=id=>document.getElementById(id),clone=a=>a.map(x=>x.slice()),fmt=n=>String(Math.floor(n/60)).padStart(2,\'0\')+\':\'+String(n%60).padStart(2,\'0\'),human=n=>Math.floor(n/60)+\' h \'+String(n%60).padStart(2,\'0\')+\' min\',sum=a=>a.reduce((t,x)=>t+x[1]-x[0],0);\nconst valid=a=>Array.isArray(a)&&a.length<=20&&a.every(x=>Array.isArray(x)&&x.length===2&&Number.isInteger(x[0])&&Number.isInteger(x[1])&&x[0]>=0&&x[1]<=1440&&x[0]<x[1])&&a.every((x,i)=>a.every((y,j)=>i===j||x[1]<=y[0]||y[1]<=x[0]));\nfunction allValid(p=planned,r=real){return valid(p)&&valid(r)&&valid([...p,...r])&&(maxMinutes===1440||sum(p)+sum(r)<=maxMinutes)&&p.every(x=>x[0]%15===0&&x[1]%15===0)}\nfunction updateStatus(){ $(\'status\').textContent=dirty?\'Cambios pendientes · pulsa Guardar cambios\':\'Sin cambios pendientes\';$(\'save\').disabled=readonly||!dirty;}\nfunction changed(){dirty=true;updateStatus();$(\'error\').textContent=\'\'}\nfunction draw(){planned.sort((a,b)=>a[0]-b[0]);real.sort((a,b)=>a[0]-b[0]);$(\'track\').replaceChildren();$(\'chips\').replaceChildren();\n  for(const type of [\'real\',\'planned\']){const arr=type===\'real\'?real:planned;arr.forEach((s,i)=>{const e=document.createElement(\'div\');e.className=\'slot \'+type+(active&&active.type===type&&active.i===i?\' active\':\'\');e.style.left=s[0]/1440*100+\'%\';e.style.width=(s[1]-s[0])/1440*100+\'%\';e.innerHTML=\'<div class="handle left" data-edge="start"></div><div class="slotlabel"></div><div class="handle right" data-edge="end"></div>\';e.querySelector(\'.slotlabel\').textContent=fmt(s[0])+\'–\'+fmt(s[1]);e.title=type===\'real\'?\'Trabajado: arrastra para corregir horario\':\'Planificado: arrastra para cambiar horario\';\n   e.addEventListener(\'pointerdown\',ev=>{if(readonly)return;active={type,i};drag={type,i,edge:ev.target.dataset.edge||\'move\',x:ev.clientX,orig:s.slice(),pointer:ev.pointerId};e.setPointerCapture(ev.pointerId);ev.preventDefault();markActive()});\n   e.addEventListener(\'pointermove\',ev=>{if(!drag||drag.type!==type||drag.i!==i||drag.pointer!==ev.pointerId)return;const w=$(\'track\').getBoundingClientRect().width;const step=type===\'real\'?1:15;const delta=Math.round((ev.clientX-drag.x)/w*1440/step)*step;let v=drag.orig.slice();if(drag.edge===\'start\')v[0]=Math.max(0,Math.min(v[1]-step,v[0]+delta));else if(drag.edge===\'end\')v[1]=Math.min(1440,Math.max(v[0]+step,v[1]+delta));else{const len=v[1]-v[0];v[0]=Math.max(0,Math.min(1440-len,v[0]+delta));v[1]=v[0]+len}const p=clone(planned),r=clone(real);(type===\'real\'?r:p)[i]=v;if(allValid(p,r)){(type===\'real\'?real:planned)[i]=v;e.style.left=v[0]/1440*100+\'%\';e.style.width=(v[1]-v[0])/1440*100+\'%\';e.querySelector(\'.slotlabel\').textContent=fmt(v[0])+\'–\'+fmt(v[1]);updateTotals();changed()}});\n   e.addEventListener(\'pointerup\',()=>{if(drag&&drag.type===type&&drag.i===i){drag=null;draw()}});e.addEventListener(\'pointercancel\',()=>{drag=null;draw()});$(\'track\').appendChild(e);\n   const chip=document.createElement(\'button\');chip.className=\'chip \'+type+(active&&active.type===type&&active.i===i?\' active\':\'\');chip.textContent=(type===\'real\'?\'● Rosa \':\'● Azul \')+fmt(s[0])+\'–\'+fmt(s[1]);chip.onclick=()=>{active={type,i};draw()};$(\'chips\').appendChild(chip)})}\n  $(\'remove\').disabled=readonly||!active;$(\'addPlanned\').disabled=readonly;$(\'addReal\').disabled=readonly;$(\'reset\').disabled=readonly;updateTotals();updateStatus();}\nfunction markActive(){drawSelection()}\nfunction drawSelection(){Array.from($(\'track\').children).forEach(el=>el.classList.remove(\'active\'));const arr=active&&active.type===\'real\'?real:planned;const selected=active&&arr[active.i];if(selected){Array.from($(\'track\').children).find(el=>el.classList.contains(active.type)&&Math.abs(parseFloat(el.style.left)-selected[0]/1440*100)<.01)?.classList.add(\'active\')} }\nfunction updateTotals(){$(\'total\').textContent=human(sum(planned)+sum(real));$(\'plannedtotal\').textContent=human(sum(planned));$(\'realtotal\').textContent=human(sum(real))}\nfunction add(type){const duration=60,arr=type===\'real\'?real:planned;for(let m=8*60;m+duration<=1440;m+=(type===\'real\'?15:15)){let next=[m,m+duration];const p=clone(planned),r=clone(real);(type===\'real\'?r:p).push(next);if(allValid(p,r)){arr.push(next);active={type,i:arr.length-1};changed();draw();return}}$(\'error\').textContent=\'No hay hueco libre para añadir una franja de una hora.\'}\n$(\'addPlanned\').onclick=()=>add(\'planned\');$(\'addReal\').onclick=()=>add(\'real\');$(\'remove\').onclick=()=>{if(!active)return;const arr=active.type===\'real\'?real:planned;arr.splice(active.i,1);active=null;changed();draw()};$(\'reset\').onclick=()=>{planned=[];active=null;changed();draw()};\n$(\'save\').onclick=()=>{if(readonly||!dirty)return;if(!allValid()){$(\'error\').textContent=\'Revisa los solapamientos o límites de duración\';return}const slots=planned.map(s=>[s[0]/15,s[1]/15]);window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:setComponentValue\',value:{day,slots,real:clone(real),mode:\'day\',revision}},\'*\');$(\'save\').disabled=true;$(\'status\').textContent=\'Guardando cambios…\'};\nwindow.addEventListener(\'message\',ev=>{if(ev.data?.type!==\'streamlit:render\')return;const a=ev.data.args||{};if(!initialized||a.day!==day||a.revision!==revision){day=a.day;revision=a.revision;planned=(a.slots||[]).map(s=>[s[0]*15,s[1]*15]);real=clone(a.real||[]);maxMinutes=a.max_minutes||1440;readonly=!!a.readonly;dirty=false;active=null;initialized=true;draw()}$(\'worked\').textContent=human(Math.round((a.worked_seconds||0)/60));$(\'pending\').textContent=human(Math.round((a.pending_seconds||0)/60))});\nwindow.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:componentReady\',apiVersion:1},\'*\');window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:setFrameHeight\',height:345},\'*\');\n</script></body></html>\n'
+TIMELINE_HTML = '<!doctype html><html lang="es"><head><meta charset="utf-8"><style>\n*{box-sizing:border-box}body{margin:0;padding:3px;font:13px system-ui,-apple-system,Segoe UI,sans-serif;color:#eef2ff;background:transparent}.panel{padding:16px;border:1px solid rgba(200,214,255,.24);border-radius:18px;background:linear-gradient(145deg,rgba(38,49,77,.88),rgba(17,26,47,.92));box-shadow:0 10px 28px #0003;backdrop-filter:blur(16px)}.heading{display:flex;justify-content:space-between;gap:12px;align-items:center}.heading strong{font-size:15px}.muted,.axis,.status,.data span{color:#b4c1d9;font-size:11px}.total{font-size:20px;font-weight:750;color:#fff}.axis{display:flex;justify-content:space-between;margin:17px 0 8px;font-size:10px}.track{position:relative;height:46px;border-radius:11px;background:#08090d;border:1px solid rgba(185,204,245,.16);touch-action:none}.slot{position:absolute;top:5px;height:34px;border-radius:7px;overflow:visible;cursor:grab;touch-action:none;box-shadow:0 3px 10px #0004;border:1px solid #ffffff24}.slot.planned{background:linear-gradient(115deg,#2563eb,#60a5fa)}.slot.real{background:linear-gradient(120deg,#be185d,#ec4899)}.slot.active{outline:2px solid #fff;outline-offset:2px;z-index:3}.handle{position:absolute;top:1px;width:10px;height:30px;background:rgba(255,255,255,.72);border-radius:3px;cursor:ew-resize;touch-action:none}.handle.left{left:0}.handle.right{right:0}.slotlabel{text-align:center;line-height:32px;color:#fff;font-size:10px;white-space:nowrap;overflow:hidden;padding:0 10px;pointer-events:none}.legend{display:flex;gap:16px;flex-wrap:wrap;margin:10px 0;font-size:11px}.swatch{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px}.chips{display:flex;gap:6px;flex-wrap:wrap;min-height:32px;margin:10px 0}.chip,button{cursor:pointer;font:12px system-ui,sans-serif;color:#eef2ff;background:rgba(42,56,87,.88);border:1px solid rgba(184,202,242,.26);border-radius:10px;padding:7px 10px}.chip.active{border-color:#bfdbfe}.chip.real.active{border-color:#f9a8d4}button:disabled{opacity:.45;cursor:default}.actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.save{background:linear-gradient(120deg,#2563eb,#3b82f6);color:#fff;font-weight:650}.status{margin-top:10px;min-height:16px;font-size:11px}.error{color:#fda4af;font-size:11px;min-height:15px}.data{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px}.data strong{display:block;font-size:16px}.data span{font-size:11px}button:focus-visible{outline:2px solid #f472b6;outline-offset:2px}@media(max-width:480px){.panel{padding:11px}.heading{align-items:flex-start}.total{font-size:17px}.slotlabel{font-size:9px}}@media(prefers-reduced-motion:reduce){button,.chip{transition:none}}\n</style></head><body><div class="panel"><div class="heading"><div><strong>Franjas del día</strong><div class="muted">Azul: planificado · Rosa: realizado · ambos editables</div></div><div style="text-align:right"><div id="total" class="total">0 h 00 min</div><div class="muted">Total de franjas</div></div></div><div class="axis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div><div id="track" class="track"></div><div class="legend"><span><i class="swatch" style="background:#ec4899"></i>Realizado (editable)</span><span><i class="swatch" style="background:#3b82f6"></i>Planificado (editable)</span></div><div id="chips" class="chips"></div><div class="actions"><button id="addPlanned">+ Planificar (azul)</button><button id="addReal">+ Realizado (rosa)</button><button id="remove">− Eliminar selección</button><button id="reset">Vaciar planificadas</button><button id="save" class="save">Guardar cambios</button></div><div class="data"><div><span>Horas registradas en Sheets</span><strong id="worked">0 h 00 min</strong></div><div><span>Objetivo pendiente</span><strong id="pending">0 h 00 min</strong></div><div><span>Franjas rosas</span><strong id="realtotal">0 h 00 min</strong></div><div><span>Franjas azules</span><strong id="plannedtotal">0 h 00 min</strong></div></div><div id="status" class="status">Sin cambios pendientes</div><div id="error" class="error"></div></div>\n<script>\nlet planned=[],real=[],active=null,day=\'\',revision=\'\',initialized=false,readonly=false,maxMinutes=1440,dirty=false,drag=null;\nconst $=id=>document.getElementById(id),clone=a=>a.map(x=>x.slice()),fmt=n=>String(Math.floor(n/60)).padStart(2,\'0\')+\':\'+String(n%60).padStart(2,\'0\'),human=n=>Math.floor(n/60)+\' h \'+String(n%60).padStart(2,\'0\')+\' min\',sum=a=>a.reduce((t,x)=>t+x[1]-x[0],0);\nconst valid=a=>Array.isArray(a)&&a.length<=20&&a.every(x=>Array.isArray(x)&&x.length===2&&Number.isInteger(x[0])&&Number.isInteger(x[1])&&x[0]>=0&&x[1]<=1440&&x[0]<x[1])&&a.every((x,i)=>a.every((y,j)=>i===j||x[1]<=y[0]||y[1]<=x[0]));\nfunction allValid(p=planned,r=real){return valid(p)&&valid(r)&&valid([...p,...r])&&(maxMinutes===1440||sum(p)+sum(r)<=maxMinutes)&&p.every(x=>x[0]%15===0&&x[1]%15===0)}\nfunction updateStatus(){ $(\'status\').textContent=dirty?\'Cambios pendientes · pulsa Guardar cambios\':\'Sin cambios pendientes\';$(\'save\').disabled=readonly||!dirty;}\nfunction changed(){dirty=true;updateStatus();$(\'error\').textContent=\'\'}\nfunction draw(){planned.sort((a,b)=>a[0]-b[0]);real.sort((a,b)=>a[0]-b[0]);$(\'track\').replaceChildren();$(\'chips\').replaceChildren();\n  for(const type of [\'real\',\'planned\']){const arr=type===\'real\'?real:planned;arr.forEach((s,i)=>{const e=document.createElement(\'div\');e.className=\'slot \'+type+(active&&active.type===type&&active.i===i?\' active\':\'\');e.style.left=s[0]/1440*100+\'%\';e.style.width=(s[1]-s[0])/1440*100+\'%\';e.innerHTML=\'<div class="handle left" data-edge="start"></div><div class="slotlabel"></div><div class="handle right" data-edge="end"></div>\';e.querySelector(\'.slotlabel\').textContent=fmt(s[0])+\'–\'+fmt(s[1]);e.title=type===\'real\'?\'Trabajado: arrastra para corregir horario\':\'Planificado: arrastra para cambiar horario\';\n   e.addEventListener(\'pointerdown\',ev=>{if(readonly)return;active={type,i};drag={type,i,edge:ev.target.dataset.edge||\'move\',x:ev.clientX,orig:s.slice(),pointer:ev.pointerId};e.setPointerCapture(ev.pointerId);ev.preventDefault();markActive()});\n   e.addEventListener(\'pointermove\',ev=>{if(!drag||drag.type!==type||drag.i!==i||drag.pointer!==ev.pointerId)return;const w=$(\'track\').getBoundingClientRect().width;const step=type===\'real\'?1:15;const delta=Math.round((ev.clientX-drag.x)/w*1440/step)*step;let v=drag.orig.slice();if(drag.edge===\'start\')v[0]=Math.max(0,Math.min(v[1]-step,v[0]+delta));else if(drag.edge===\'end\')v[1]=Math.min(1440,Math.max(v[0]+step,v[1]+delta));else{const len=v[1]-v[0];v[0]=Math.max(0,Math.min(1440-len,v[0]+delta));v[1]=v[0]+len}const p=clone(planned),r=clone(real);(type===\'real\'?r:p)[i]=v;if(allValid(p,r)){(type===\'real\'?real:planned)[i]=v;e.style.left=v[0]/1440*100+\'%\';e.style.width=(v[1]-v[0])/1440*100+\'%\';e.querySelector(\'.slotlabel\').textContent=fmt(v[0])+\'–\'+fmt(v[1]);updateTotals();changed()}});\n   e.addEventListener(\'pointerup\',()=>{if(drag&&drag.type===type&&drag.i===i){drag=null;draw()}});e.addEventListener(\'pointercancel\',()=>{drag=null;draw()});$(\'track\').appendChild(e);\n   const chip=document.createElement(\'button\');chip.className=\'chip \'+type+(active&&active.type===type&&active.i===i?\' active\':\'\');chip.textContent=(type===\'real\'?\'● Rosa \':\'● Azul \')+fmt(s[0])+\'–\'+fmt(s[1]);chip.onclick=()=>{active={type,i};draw()};$(\'chips\').appendChild(chip)})}\n  $(\'remove\').disabled=readonly||!active;$(\'addPlanned\').disabled=readonly;$(\'addReal\').disabled=readonly;$(\'reset\').disabled=readonly;updateTotals();updateStatus();}\nfunction markActive(){drawSelection()}\nfunction drawSelection(){Array.from($(\'track\').children).forEach(el=>el.classList.remove(\'active\'));const arr=active&&active.type===\'real\'?real:planned;const selected=active&&arr[active.i];if(selected){Array.from($(\'track\').children).find(el=>el.classList.contains(active.type)&&Math.abs(parseFloat(el.style.left)-selected[0]/1440*100)<.01)?.classList.add(\'active\')} }\nfunction updateTotals(){$(\'total\').textContent=human(sum(planned)+sum(real));$(\'plannedtotal\').textContent=human(sum(planned));$(\'realtotal\').textContent=human(sum(real))}\nfunction add(type){const duration=60,arr=type===\'real\'?real:planned;for(let m=8*60;m+duration<=1440;m+=(type===\'real\'?15:15)){let next=[m,m+duration];const p=clone(planned),r=clone(real);(type===\'real\'?r:p).push(next);if(allValid(p,r)){arr.push(next);active={type,i:arr.length-1};changed();draw();return}}$(\'error\').textContent=\'No hay hueco libre para añadir una franja de una hora.\'}\n$(\'addPlanned\').onclick=()=>add(\'planned\');$(\'addReal\').onclick=()=>add(\'real\');$(\'remove\').onclick=()=>{if(!active)return;const arr=active.type===\'real\'?real:planned;arr.splice(active.i,1);active=null;changed();draw()};$(\'reset\').onclick=()=>{planned=[];active=null;changed();draw()};\n$(\'save\').onclick=()=>{if(readonly||!dirty)return;if(!allValid()){$(\'error\').textContent=\'Revisa los solapamientos o límites de duración\';return}const slots=planned.map(s=>[s[0]/15,s[1]/15]);window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:setComponentValue\',value:{day,slots,real:clone(real),mode:\'day\',revision}},\'*\');$(\'save\').disabled=true;$(\'status\').textContent=\'Guardando cambios…\'};\nwindow.addEventListener(\'message\',ev=>{if(ev.data?.type!==\'streamlit:render\')return;const a=ev.data.args||{};if(!initialized||a.day!==day||a.revision!==revision){day=a.day;revision=a.revision;planned=(a.slots||[]).map(s=>[s[0]*15,s[1]*15]);real=clone(a.real||[]);maxMinutes=a.max_minutes||1440;readonly=!!a.readonly;dirty=false;active=null;initialized=true;draw()}$(\'worked\').textContent=human(Math.round((a.worked_seconds||0)/60));$(\'pending\').textContent=human(Math.round((a.pending_seconds||0)/60))});\nwindow.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:componentReady\',apiVersion:1},\'*\');window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:setFrameHeight\',height:475},\'*\');\n</script></body></html>\n'
 
 st.set_page_config(page_title="Control horas work", page_icon="https://cdn-icons-png.flaticon.com/512/194/194978.png", layout="wide")
 st.markdown(r"""<style>
@@ -151,6 +151,45 @@ button:focus-visible, input:focus-visible, textarea:focus-visible,
 }
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important;}
+}
+
+/* Ajuste de controles interactivos: sustituye tonos marrones por azul oscuro.
+   Incluye menús desplegables, calendario, editor e iconos al enfocar. */
+[data-baseweb="popover"], [data-baseweb="popover"] > div,
+[data-baseweb="menu"], [data-baseweb="menu"] > div,
+[data-baseweb="calendar"], [data-baseweb="calendar"] > div,
+[data-baseweb="timepicker"], [data-baseweb="timepicker"] > div,
+[data-baseweb="select"] [role="listbox"],
+[role="listbox"], [role="dialog"][data-baseweb] {
+  background-color: #17233d!important;
+  color:#edf2ff!important;
+  border-color:rgba(176,198,245,.25)!important;
+  box-shadow:0 16px 40px rgba(0,0,0,.35)!important;
+}
+[data-baseweb="menu"] li, [data-baseweb="menu"] [role="option"],
+[data-baseweb="calendar"] button, [data-baseweb="timepicker"] button,
+[data-baseweb="select"] [role="option"] {
+  color:#e9f0ff!important;
+  background-color:transparent;
+}
+[data-baseweb="menu"] li:hover, [data-baseweb="menu"] [role="option"]:hover,
+[data-baseweb="menu"] [aria-selected="true"],
+[data-baseweb="calendar"] button:hover, [data-baseweb="timepicker"] button:hover,
+[data-baseweb="select"] [role="option"]:hover,
+[role="option"][aria-selected="true"] {
+  background-color:#263a62!important;
+  color:#fff!important;
+}
+[data-baseweb="input"]:focus-within, [data-baseweb="select"]:focus-within,
+[data-testid="stDataEditor"]:focus-within, [data-testid="stDateInput"]:focus-within,
+[data-testid="stNumberInput"]:focus-within {
+  border-color:rgba(96,165,250,.65)!important;
+  box-shadow:0 0 0 1px rgba(59,130,246,.25);
+}
+/* Sobrescribir algunos acentos de controles nativos incrustados en Streamlit. */
+[data-baseweb="checkbox"] [aria-checked="true"],
+[data-baseweb="radio"] [aria-checked="true"] {
+  accent-color:#3b82f6!important;
 }
 </style>""", unsafe_allow_html=True)
 
@@ -1097,6 +1136,11 @@ with left:
                 progress_period(actual, target, on_track)
                 with st.container(border=True):
                     st.metric(label, fmt(actual))
+                    remaining = max(0, target - actual)
+                    if remaining:
+                        st.markdown(f"**Faltan {fmt(remaining)}** para completar el objetivo")
+                    else:
+                        st.markdown("**Objetivo completado ✓**")
                     st.caption(f"{caption} · Meta completa: {fmt(target)}")
                     st.caption(f"Exigido hasta hoy: {fmt(required)} · "
                                + ("Al día ✓" if on_track else "Por debajo del objetivo"))
@@ -1287,36 +1331,8 @@ with right:
             st.caption("Edita «Trabajado» con formato H:MM para corregir el total del día. También puedes editar Horas y Minutos. Los cambios se guardan al confirmar la celda. Los nuevos registros manuales y del cronómetro se SUMAN a las horas existentes. Para conservar columnas ocultas o reordenadas, usa «Personalizar columnas».")
 
 
-if show_section("utilidades"):
-    if any(show_section(x) for x in ("cronometro", "registro", "resumen", "balance", "historial")):
-        st.divider()
-    st.markdown("### Herramientas y conexión con iCloud")
-    actions_a, actions_b, actions_c = st.columns(3)
-    with actions_a:
-        if st.button("🔄 Recargar Google Sheets", width="stretch"):
-            refresh()
-    with actions_b:
-        spreadsheet_id = st.secrets.get("spreadsheet_id", "1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E")
-        st.link_button("📊 Google Sheets", f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit", width="stretch")
-    with actions_c:
-        if st.button("🛠 Reparar formato y motivos de la hoja", width="stretch"):
-            try:
-                repair_sheet(ws, records)
-                st.success("Formato y motivos corregidos. Recargando...")
-                refresh()
-            except Exception as exc:
-                st.error(f"No se pudo reparar la hoja: {exc}")
-    with st.expander("Comprobar conexión con iCloud"):
-        if st.button("Comprobar conexión con iCloud", key="check_icloud"):
-            try:
-                obtener_calendario_icloud()
-                st.success("Conexión correcta. Calendario Trabajo encontrado.")
-            except Exception:
-                st.error("No se pudo conectar al calendario Trabajo. Revisa las credenciales y el nombre.")
-
-
 if show_section("horario"):
-    if any(show_section(x) for x in ("cronometro", "registro", "resumen", "balance", "historial", "utilidades")):
+    if any(show_section(x) for x in ("cronometro", "registro", "resumen", "balance", "historial")):
         st.divider()
     st.markdown("### Mi horario de trabajo")
     st.caption("Rosa: trabajado · Azul: planificado. Ambas se pueden mover y editar; solo los bloques azules se sincronizan con iCloud.")
@@ -1326,8 +1342,10 @@ if show_section("horario"):
     except Exception as exc:
         st.error(f"No se pudo leer el planificador: {exc}")
     else:
-        schedule_col, _unused = st.columns([3, 2])
-        with schedule_col:
+        schedule_bar_col, schedule_details_col = st.columns([1, 1], gap="large")
+        # Los controles se calculan primero, pero se muestran en la columna derecha.
+        with schedule_details_col:
+            st.markdown("#### Configurar día y franjas realizadas")
             chosen_day = st.date_input("Día del horario", value=today,
                                        min_value=date(2026, 1, 1),
                                        max_value=date(2027, 12, 31),
@@ -1403,6 +1421,9 @@ if show_section("horario"):
                 st.caption(f"iCloud: {len(cloud_events)} franja(s) planificada(s) sincronizada(s). Los eventos ajenos no se modifican.")
             # Solo mostrar como editables las porciones no realizadas.
             current_slots = strip_fixed(current_slots, fixed_slots)
+        # Barra visual en la mitad izquierda. Reutiliza el día y las franjas
+        # configuradas a la derecha, sin cambiar su forma de guardado.
+        with schedule_bar_col:
             # Un valor del componente se aplica solo una vez y solo a su fecha.
             timeline = timeline_component()
             revision = json.dumps([chosen_day.isoformat(), current_slots, fixed_slots, cloud_signature, icloud_enabled], ensure_ascii=False)
@@ -1474,4 +1495,30 @@ if show_section("horario"):
                     _, needed, _, _, _ = plan
                     st.caption(f"Para llegar al 15/12/2026, las horas pendientes estimadas desde hoy son {fmt(needed)}. El horario es orientativo; registra las horas reales por separado.")
 
+if show_section("utilidades"):
+    if show_section("horario") or any(show_section(x) for x in ("cronometro", "registro", "resumen", "balance", "historial")):
+        st.divider()
+    st.markdown("### Herramientas y conexión con iCloud")
+    actions_a, actions_b, actions_c = st.columns(3)
+    with actions_a:
+        if st.button("🔄 Recargar Google Sheets", width="stretch"):
+            refresh()
+    with actions_b:
+        spreadsheet_id = st.secrets.get("spreadsheet_id", "1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E")
+        st.link_button("📊 Google Sheets", f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit", width="stretch")
+    with actions_c:
+        if st.button("🛠 Reparar formato y motivos de la hoja", width="stretch"):
+            try:
+                repair_sheet(ws, records)
+                st.success("Formato y motivos corregidos. Recargando...")
+                refresh()
+            except Exception as exc:
+                st.error(f"No se pudo reparar la hoja: {exc}")
+    with st.expander("Comprobar conexión con iCloud"):
+        if st.button("Comprobar conexión con iCloud", key="check_icloud"):
+            try:
+                obtener_calendario_icloud()
+                st.success("Conexión correcta. Calendario Trabajo encontrado.")
+            except Exception:
+                st.error("No se pudo conectar al calendario Trabajo. Revisa las credenciales y el nombre.")
 
