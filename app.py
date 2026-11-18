@@ -543,6 +543,85 @@ except Exception as exc:
     st.info("Comprueba el ID de la hoja, las credenciales y los permisos de la cuenta de servicio. No se han modificado tus datos.")
     st.stop()
 
+
+# Fase 4: preferencias de secciones, almacenadas fuera de los registros de horas.
+# P:Q = intervalos reales; R:S = visibilidad. No se alteran A:G, I:J ni M:N.
+SECTION_NAMES = {
+    "cronometro": "Cronometro y registro manual",
+    "resumen": "Resumen y graficas de progreso",
+    "balance": "Balance de horas y deuda",
+    "historial": "Historial de horas trabajadas",
+    "herramientas": "Herramientas de Google Sheets",
+    "icloud": "Prueba de conexion con iCloud",
+    "horario": "Horario de trabajo",
+}
+
+
+def read_section_preferences(sheet):
+    rows = sheet.get("R1:S2")
+    values = {r[0]: r[1] for r in rows if len(r) > 1}
+    raw = values.get("Secciones visibles", "")
+    if not raw:
+        return {key: True for key in SECTION_NAMES}
+    settings = json.loads(raw)
+    if not isinstance(settings, dict):
+        raise ValueError("La configuracion guardada no es un objeto")
+    if any(type(v) is not bool for v in settings.values()):
+        raise ValueError("Las preferencias deben ser verdadero/falso")
+    return {key: settings.get(key, True) for key in SECTION_NAMES}
+
+
+def save_section_preferences(sheet, preferences, previous):
+    if read_section_preferences(sheet) != previous:
+        raise ValueError("Las preferencias cambiaron en otra pestana. Recarga antes de guardarlas")
+    saved = {key: bool(preferences[key]) for key in SECTION_NAMES}
+    sheet.update(range_name="R1:S2", values=[
+        ["Preferencias interfaz", "v1"],
+        ["Secciones visibles", json.dumps(saved, ensure_ascii=False, sort_keys=True)],
+    ], value_input_option="RAW")
+
+
+# El menu de visibilidad queda SIEMPRE disponible, aunque se oculten todos los bloques.
+try:
+    section_preferences = read_section_preferences(ws)
+    section_config_ok = True
+except Exception as exc:
+    section_config_ok = False
+    section_preferences = {key: True for key in SECTION_NAMES}
+    st.warning(f"No se pueden leer las preferencias de visibilidad: {exc}. Se muestran todas las secciones por seguridad.")
+
+with st.expander("⚙️ Mostrar u ocultar secciones", expanded=False):
+    st.caption("Elige los bloques que quieres ver y pulsa Guardar. La seleccion se conserva en Google Sheets al recargar o cambiar de dispositivo. No se elimina ningun dato.")
+    with st.form("form_section_preferences"):
+        chosen_visibility = {}
+        cols = st.columns(2)
+        for index, (section_id, section_title) in enumerate(SECTION_NAMES.items()):
+            with cols[index % 2]:
+                chosen_visibility[section_id] = st.checkbox(
+                    section_title, value=section_preferences[section_id],
+                    key=f"pref_section_{section_id}",
+                )
+        save_sections = st.form_submit_button(
+            "Guardar secciones visibles", width="stretch", disabled=not section_config_ok
+        )
+    if save_sections:
+        try:
+            save_section_preferences(ws, chosen_visibility, section_preferences)
+            st.toast("Preferencias de secciones guardadas")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"No se pudo guardar la visibilidad: {exc}")
+    if st.button("Mostrar todas las secciones", key="show_all_sections", disabled=not section_config_ok):
+        try:
+            save_section_preferences(ws, {k: True for k in SECTION_NAMES}, section_preferences)
+            st.rerun()
+        except Exception as exc:
+            st.error(f"No se pudieron restaurar las secciones: {exc}")
+
+
+def show_section(section_id):
+    return section_preferences[section_id]
+
 st.divider()
 today = now().date()
 yesterday = today-timedelta(days=1)
@@ -748,455 +827,465 @@ def timeline_component():
     return components.declare_component("control_horas_timeline_v3", path=str(folder))
 
 
-st.divider()
-left,right = st.columns([1.1,.9])
+if any(show_section(x) for x in ("cronometro", "resumen", "balance", "historial")):
+    st.divider()
+    left, right = st.columns([1.1, .9])
+else:
+    left = right = st.container()
 with left:
-    st.markdown("### Cronómetro y Registro de Horas")
-    with st.container(border=True):
-        elapsed = timer_seconds(state)
-        st.markdown(f"### ⏱️ {fmt_clock(elapsed)}")
-        a,b,c = st.columns(3)
-        with a:
-            if not state[1] and st.button("Activar", type="primary", width="stretch"):
-                timer_write(ws,state[0],True,now());refresh()
-            if state[1] and st.button("Pausar",width="stretch"):
-                timer_write(ws,elapsed,False,None);refresh()
-        with b:
-            if st.button("Resetear",width="stretch"):
-                timer_write(ws,0,False,None);refresh()
-        with c:
-            if st.button("Registrar crono",width="stretch"):
-                if state[1]:
-                    st.warning("Pausa primero el cronómetro antes de registrarlo.")
-                elif elapsed<1:
-                    st.warning("No hay tiempo para registrar.")
+    if show_section("cronometro"):
+        st.markdown("### Cronómetro y Registro de Horas")
+        with st.container(border=True):
+            elapsed = timer_seconds(state)
+            st.markdown(f"### ⏱️ {fmt_clock(elapsed)}")
+            a,b,c = st.columns(3)
+            with a:
+                if not state[1] and st.button("Activar", type="primary", width="stretch"):
+                    timer_write(ws,state[0],True,now());refresh()
+                if state[1] and st.button("Pausar",width="stretch"):
+                    timer_write(ws,elapsed,False,None);refresh()
+            with b:
+                if st.button("Resetear",width="stretch"):
+                    timer_write(ws,0,False,None);refresh()
+            with c:
+                if st.button("Registrar crono",width="stretch"):
+                    if state[1]:
+                        st.warning("Pausa primero el cronómetro antes de registrarlo.")
+                    elif elapsed<1:
+                        st.warning("No hay tiempo para registrar.")
+                    else:
+                        try:
+                            save_day(ws,records,today,seconds=worked_today+elapsed)
+                            timer_write(ws,0,False,None)
+                            st.success("Tiempo registrado")
+                            refresh()
+                        except Exception as exc:
+                            st.error(f"No se pudo completar el registro: {exc}. Comprueba la hoja antes de reintentar.")
+            st.divider()
+            st.write("**O ingresar horas manualmente:**")
+            with st.form("manual",clear_on_submit=False):
+                x,y,z = st.columns(3)
+                with x: selected_day = st.date_input("Fecha",today,max_value=today)
+                with y: hours = st.number_input("Horas",min_value=0,max_value=1000,value=0,step=1)
+                with z: minutes = st.number_input("Minutos",min_value=0,max_value=59,value=0,step=1)
+                submitted = st.form_submit_button("Registrar",width="stretch")
+            if submitted:
+                seconds = int(hours)*3600+int(minutes)*60
+                if seconds<=0:
+                    st.warning("Introduce una duración positiva")
                 else:
                     try:
-                        save_day(ws,records,today,seconds=worked_today+elapsed)
-                        timer_write(ws,0,False,None)
-                        st.success("Tiempo registrado")
+                        save_day(ws,records,selected_day,seconds=records.get(selected_day,{}).get("seconds",0)+seconds)
+                        st.success("Horas guardadas")
                         refresh()
                     except Exception as exc:
-                        st.error(f"No se pudo completar el registro: {exc}. Comprueba la hoja antes de reintentar.")
-        st.divider()
-        st.write("**O ingresar horas manualmente:**")
-        with st.form("manual",clear_on_submit=False):
-            x,y,z = st.columns(3)
-            with x: selected_day = st.date_input("Fecha",today,max_value=today)
-            with y: hours = st.number_input("Horas",min_value=0,max_value=1000,value=0,step=1)
-            with z: minutes = st.number_input("Minutos",min_value=0,max_value=59,value=0,step=1)
-            submitted = st.form_submit_button("Registrar",width="stretch")
-        if submitted:
-            seconds = int(hours)*3600+int(minutes)*60
-            if seconds<=0:
-                st.warning("Introduce una duración positiva")
-            else:
-                try:
-                    save_day(ws,records,selected_day,seconds=records.get(selected_day,{}).get("seconds",0)+seconds)
-                    st.success("Horas guardadas")
-                    refresh()
-                except Exception as exc:
-                    st.error(f"Error al guardar: {exc}")
+                        st.error(f"Error al guardar: {exc}")
 
-    st.divider()
-    st.markdown("### Resumen actual")
-    cols = st.columns(3)
-    for col,label,actual,target,required,caption in zip(
-            cols, ["Hoy", "Semana", "Mes"],
-            [worked_today, worked_week, worked_month],
-            [expected_today, expected_week, expected_month],
-            [expected_today, expected_week_to_date, expected_month_to_date],
-            [today.strftime("%d/%m/%Y"), f"Desde {week_start:%d/%m}", f"Desde {month_start:%d/%m}"]):
-        with col:
-            on_track = period_on_track(actual, required)
-            progress_period(actual, target, on_track)
-            with st.container(border=True):
-                st.metric(label, fmt(actual))
-                st.caption(f"{caption} · Meta completa: {fmt(target)}")
-                st.caption(f"Exigido hasta hoy: {fmt(required)} · "
-                           + ("Al día ✓" if on_track else "Por debajo del objetivo"))
-            fig = plot_ring(actual, target, on_track)
-            st.pyplot(fig, width="stretch")
-            plt.close(fig)
-    st.caption("Rosa: alcanzado el objetivo acumulado hasta hoy. Azul: todavía por debajo. "
-               "La longitud representa el progreso sobre el objetivo completo de semana o mes. "
-               "Se descuentan los festivos y días no laborables. "
-               "La deuda sigue calculándose solo hasta ayer.")
+    if show_section("resumen"):
+        st.divider()
+        st.markdown("### Resumen actual")
+        cols = st.columns(3)
+        for col,label,actual,target,required,caption in zip(
+                cols, ["Hoy", "Semana", "Mes"],
+                [worked_today, worked_week, worked_month],
+                [expected_today, expected_week, expected_month],
+                [expected_today, expected_week_to_date, expected_month_to_date],
+                [today.strftime("%d/%m/%Y"), f"Desde {week_start:%d/%m}", f"Desde {month_start:%d/%m}"]):
+            with col:
+                on_track = period_on_track(actual, required)
+                progress_period(actual, target, on_track)
+                with st.container(border=True):
+                    st.metric(label, fmt(actual))
+                    st.caption(f"{caption} · Meta completa: {fmt(target)}")
+                    st.caption(f"Exigido hasta hoy: {fmt(required)} · "
+                               + ("Al día ✓" if on_track else "Por debajo del objetivo"))
+                fig = plot_ring(actual, target, on_track)
+                st.pyplot(fig, width="stretch")
+                plt.close(fig)
+        st.caption("Rosa: alcanzado el objetivo acumulado hasta hoy. Azul: todavía por debajo. "
+                   "La longitud representa el progreso sobre el objetivo completo de semana o mes. "
+                   "Se descuentan los festivos y días no laborables. "
+                   "La deuda sigue calculándose solo hasta ayer.")
 
 with right:
-    st.markdown("### Balance de horas")
-    debt = expected_hist - worked_hist
-    progress = 1.0 if expected_hist <= 0 else min(1.0, worked_hist / expected_hist)
-    st.progress(progress, text="Cumplimiento de horas obligatorias hasta ayer (incluido crédito anterior)")
-    with st.container(border=True):
-        st.metric("Balance de horas (positivo: pendientes · negativo: a favor)", fmt(debt))
-        st.caption("Un valor positivo indica horas pendientes; uno negativo indica horas a favor. Se incluyen las horas anteriores al 22/07.")
-    # Diagnóstico opcional, sin segundo saldo en la tarjeta de deuda.
-    with st.expander("Comprobar cómo se calcula la deuda"):
-        st.write(f"Obligatorias hasta ayer: **{fmt(expected_hist)}**")
-        st.write(f"Trabajadas hasta ayer, incluidas las anteriores al inicio: **{fmt(worked_hist)}**")
-        st.write(f"Horas a favor anteriores al 22/07/2026: **{fmt(total(records, min(records) if records else START, START - timedelta(days=1)))}**")
-        st.write("Deuda = obligatorias desde el 22/07 − todas las horas registradas hasta ayer. Las horas anteriores al 22/07 reducen la deuda.")
-        months=sorted({(d.year,d.month) for d in records if START<=d<=yesterday})
-        for year,month in months:
-            a=max(START,date(year,month,1))
-            b=min(yesterday,date(year,month,calendar.monthrange(year,month)[1]))
-            m_expected=total(records,a,b,"target")
-            m_worked=total(records,a,b)
-            st.write(f"{MONTHS[month].capitalize()} {year}: objetivo {fmt(m_expected)}, trabajadas {fmt(m_worked)}")
+    if show_section("balance"):
+        st.markdown("### Balance de horas")
+        debt = expected_hist - worked_hist
+        progress = 1.0 if expected_hist <= 0 else min(1.0, worked_hist / expected_hist)
+        st.progress(progress, text="Cumplimiento de horas obligatorias hasta ayer (incluido crédito anterior)")
+        with st.container(border=True):
+            st.metric("Balance de horas (positivo: pendientes · negativo: a favor)", fmt(debt))
+            st.caption("Un valor positivo indica horas pendientes; uno negativo indica horas a favor. Se incluyen las horas anteriores al 22/07.")
+        # Diagnóstico opcional, sin segundo saldo en la tarjeta de deuda.
+        with st.expander("Comprobar cómo se calcula la deuda"):
+            st.write(f"Obligatorias hasta ayer: **{fmt(expected_hist)}**")
+            st.write(f"Trabajadas hasta ayer, incluidas las anteriores al inicio: **{fmt(worked_hist)}**")
+            st.write(f"Horas a favor anteriores al 22/07/2026: **{fmt(total(records, min(records) if records else START, START - timedelta(days=1)))}**")
+            st.write("Deuda = obligatorias desde el 22/07 − todas las horas registradas hasta ayer. Las horas anteriores al 22/07 reducen la deuda.")
+            months=sorted({(d.year,d.month) for d in records if START<=d<=yesterday})
+            for year,month in months:
+                a=max(START,date(year,month,1))
+                b=min(yesterday,date(year,month,calendar.monthrange(year,month)[1]))
+                m_expected=total(records,a,b,"target")
+                m_worked=total(records,a,b)
+                st.write(f"{MONTHS[month].capitalize()} {year}: objetivo {fmt(m_expected)}, trabajadas {fmt(m_worked)}")
 
-    st.divider()
-    st.subheader("Horas trabajadas anteriormente")
-    st.caption("Puedes cambiar el estado laborable de cualquier fecha y editar su duración. Las fechas futuras no se muestran.")
-    months=sorted({(d.year,d.month) for d in records if d<=today},reverse=True)
-    if not months:
-        st.info("No hay registros todavía")
-    else:
-        options=[f"{MONTHS[m].capitalize()} {y}" for y,m in months]
-        choice=st.selectbox("Mes del historial",range(len(months)),format_func=lambda i:options[i])
-        year,month=months[choice]
-        subset=sorted(d for d in records if d.year==year and d.month==month and d<=today)
-        data=[]
-        for d in subset:
-            r=records[d]
-            data.append({"Fecha":d.strftime("%d/%m/%Y"),"Día": ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"][d.weekday()],"Laborable":r["work"],
-                         "Horas":r["seconds"]//3600,"Minutos":(r["seconds"]%3600)//60,
-                         "Objetivo":fmt(DAILY_SECONDS if r["work"] else 0),
-                         "Trabajado":fmt_editable_duration(r["seconds"]),"Motivo":r.get("note","")})
-        df=pd.DataFrame(data)
-        # Column layout is a deliberate, persistent setting, not Streamlit's
-        # temporary drag/hide state (which data_editor does not expose to Python).
-        ALL_COLS = list(df.columns)
-        layout_key = "historial_layout_v1"
-        if layout_key not in st.session_state:
-            try:
-                stored = json.loads((ws.acell("L2").value or "{}"))
-                stored_cols = stored.get("columns", ALL_COLS)
-                valid_cols = [c for c in stored_cols if c in ALL_COLS]
-                st.session_state[layout_key] = valid_cols if valid_cols else ALL_COLS.copy()
-            except (ValueError, TypeError, AttributeError):
-                st.session_state[layout_key] = ALL_COLS.copy()
+    if show_section("historial"):
+        st.divider()
+        st.subheader("Horas trabajadas anteriormente")
+        st.caption("Puedes cambiar el estado laborable de cualquier fecha y editar su duración. Las fechas futuras no se muestran.")
+        months=sorted({(d.year,d.month) for d in records if d<=today},reverse=True)
+        if not months:
+            st.info("No hay registros todavía")
+        else:
+            options=[f"{MONTHS[m].capitalize()} {y}" for y,m in months]
+            choice=st.selectbox("Mes del historial",range(len(months)),format_func=lambda i:options[i])
+            year,month=months[choice]
+            subset=sorted(d for d in records if d.year==year and d.month==month and d<=today)
+            data=[]
+            for d in subset:
+                r=records[d]
+                data.append({"Fecha":d.strftime("%d/%m/%Y"),"Día": ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"][d.weekday()],"Laborable":r["work"],
+                             "Horas":r["seconds"]//3600,"Minutos":(r["seconds"]%3600)//60,
+                             "Objetivo":fmt(DAILY_SECONDS if r["work"] else 0),
+                             "Trabajado":fmt_editable_duration(r["seconds"]),"Motivo":r.get("note","")})
+            df=pd.DataFrame(data)
+            # Column layout is a deliberate, persistent setting, not Streamlit's
+            # temporary drag/hide state (which data_editor does not expose to Python).
+            ALL_COLS = list(df.columns)
+            layout_key = "historial_layout_v1"
+            if layout_key not in st.session_state:
+                try:
+                    stored = json.loads((ws.acell("L2").value or "{}"))
+                    stored_cols = stored.get("columns", ALL_COLS)
+                    valid_cols = [c for c in stored_cols if c in ALL_COLS]
+                    st.session_state[layout_key] = valid_cols if valid_cols else ALL_COLS.copy()
+                except (ValueError, TypeError, AttributeError):
+                    st.session_state[layout_key] = ALL_COLS.copy()
 
-        def persist_layout(cols):
-            if not cols:
-                st.session_state["layout_notice"] = ("error", "Debe quedar al menos una columna visible.")
-                return
-            try:
-                ws.update(range_name="L1:L2", values=[["Preferencias historial"],
-                          [json.dumps({"columns": cols}, ensure_ascii=False)]], value_input_option="RAW")
-                st.session_state[layout_key] = cols
-                st.session_state["layout_notice"] = ("success", "Distribución de columnas guardada en Google Sheets.")
-            except Exception as exc:
-                st.session_state["layout_notice"] = ("error", f"No se pudo guardar la distribución: {exc}")
-
-        with st.expander("Personalizar columnas (se conserva al recargar)"):
-            visible = st.multiselect("Columnas visibles", ALL_COLS,
-                        default=st.session_state[layout_key], key="history_visible_cols")
-            if visible != st.session_state[layout_key]:
-                if st.button("Aplicar columnas visibles", key="apply_visible"):
-                    # Retain the relative order of existing columns.
-                    current = st.session_state[layout_key]
-                    ordered = [c for c in current if c in visible] + [c for c in visible if c not in current]
-                    persist_layout(ordered)
-                    st.rerun()
-            if st.session_state[layout_key]:
-                move_col = st.selectbox("Columna que quieres mover", st.session_state[layout_key], key="move_col")
-                up, down = st.columns(2)
-                with up:
-                    if st.button("⬅ Mover a la izquierda", width="stretch"):
-                        order = st.session_state[layout_key].copy()
-                        idx = order.index(move_col)
-                        if idx > 0:
-                            order[idx-1], order[idx] = order[idx], order[idx-1]
-                            persist_layout(order)
-                            st.rerun()
-                with down:
-                    if st.button("Mover a la derecha ➡", width="stretch"):
-                        order = st.session_state[layout_key].copy()
-                        idx = order.index(move_col)
-                        if idx < len(order)-1:
-                            order[idx+1], order[idx] = order[idx], order[idx+1]
-                            persist_layout(order)
-                            st.rerun()
-        if "layout_notice" in st.session_state:
-            level, msg = st.session_state.pop("layout_notice")
-            (st.success if level == "success" else st.error)(msg)
-
-        editor_key = f"editor_{year}_{month}"
-
-        def autosave_history():
-            """Runs on cell commit. Validate all edits before any Sheets write."""
-            try:
-                edited_rows = st.session_state.get(editor_key, {}).get("edited_rows", {})
-                if not edited_rows:
+            def persist_layout(cols):
+                if not cols:
+                    st.session_state["layout_notice"] = ("error", "Debe quedar al menos una columna visible.")
                     return
-                # Re-read to avoid overwriting changes made in another browser/tab.
-                latest, issues = read_records(ws)
-                if issues:
-                    raise ValueError("Google Sheets contiene filas pendientes de revisión; no se ha guardado nada.")
-                changes = []
-                for raw_idx, patch in edited_rows.items():
-                    idx = int(raw_idx)
-                    if idx < 0 or idx >= len(subset):
-                        raise ValueError("La fila editada ya no existe.")
-                    d = subset[idx]
-                    original = records[d]
-                    current = latest.get(d)
-                    if current is None or current != original:
-                        raise ValueError(f"El día {d:%d/%m/%Y} cambió en Google Sheets. Recarga antes de editarlo.")
-                    if any(c not in ("Laborable", "Horas", "Minutos", "Trabajado", "Motivo") for c in patch):
-                        raise ValueError("Se intentó modificar una columna de solo lectura.")
-                    if "Trabajado" in patch:
-                        seconds = parse_editable_duration(patch["Trabajado"])
-                    elif "Horas" not in patch and "Minutos" not in patch:
-                        seconds = original["seconds"]
-                    else:
-                        hours = patch.get("Horas", df.iloc[idx]["Horas"])
-                        minutes = patch.get("Minutos", df.iloc[idx]["Minutos"])
-                        if isinstance(hours, bool) or isinstance(minutes, bool):
-                            raise ValueError("Las horas y los minutos deben ser numeros enteros.")
-                        try:
-                            h, m = int(hours), int(minutes)
-                            valid = (h == float(hours) and m == float(minutes))
-                        except (TypeError, ValueError, OverflowError):
-                            valid = False
-                        if not valid or not (0 <= h <= 24 and 0 <= m <= 59) or h*60+m > 1440:
-                            raise ValueError("La duración debe estar entre 0:00 y 24:00, con minutos entre 0 y 59.")
-                        seconds = h*3600 + m*60
-                    work = patch.get("Laborable", original["work"])
-                    if not isinstance(work, bool):
-                        raise ValueError("El valor Laborable debe ser Sí o No.")
-                    note = patch.get("Motivo", original.get("note", ""))
-                    if note is None:
-                        note = ""
-                    note = str(note)
-                    if len(note) > 1000:
-                        raise ValueError("El motivo no puede superar 1000 caracteres.")
-                    if seconds != original["seconds"] or work != original["work"] or note != original.get("note", ""):
-                        changes.append((d, seconds, work, note))
-                for d, seconds, work, note in changes:
-                    save_day(ws, latest, d, seconds=seconds, work=work, note=note)
-                # Remove pending edits only after all writes succeeded.
-                st.session_state.pop(editor_key, None)
-                st.session_state["autosave_notice"] = ("success", f"{len(changes)} día(s) guardado(s) automáticamente en Google Sheets.")
-            except Exception as exc:
-                st.session_state["autosave_notice"] = ("error", f"No se ha podido completar el guardado: {exc}. Revisa Google Sheets antes de reintentar.")
+                try:
+                    ws.update(range_name="L1:L2", values=[["Preferencias historial"],
+                              [json.dumps({"columns": cols}, ensure_ascii=False)]], value_input_option="RAW")
+                    st.session_state[layout_key] = cols
+                    st.session_state["layout_notice"] = ("success", "Distribución de columnas guardada en Google Sheets.")
+                except Exception as exc:
+                    st.session_state["layout_notice"] = ("error", f"No se pudo guardar la distribución: {exc}")
 
-        # The editor's own drag/reorder/hide interactions are not persistent;
-        # use the settings above to keep column layout across devices/reloads.
-        st.data_editor(df,hide_index=True,width="stretch",key=editor_key,
-            column_order=st.session_state[layout_key],
-            on_change=autosave_history,
-            disabled=["Fecha","Día","Objetivo"],
-            column_config={"Laborable":st.column_config.CheckboxColumn("Laborable"),
-                           "Horas":st.column_config.NumberColumn("Horas",min_value=0,max_value=24,step=1),
-                           "Minutos":st.column_config.NumberColumn("Minutos",min_value=0,max_value=59,step=1),
-                           "Trabajado":st.column_config.TextColumn("Trabajado (H:MM)", help="Edita el total del día, por ejemplo 5:30. Se sustituye el total anterior y se guarda en Google Sheets."),
-                           "Motivo":st.column_config.TextColumn("Motivo")})
-        if "autosave_notice" in st.session_state:
-            level, msg = st.session_state.pop("autosave_notice")
-            (st.success if level == "success" else st.error)(msg)
-        st.caption("Edita «Trabajado» con formato H:MM para corregir el total del día. También puedes editar Horas y Minutos. Los cambios se guardan al confirmar la celda. Los nuevos registros manuales y del cronómetro se SUMAN a las horas existentes. Para conservar columnas ocultas o reordenadas, usa «Personalizar columnas».")
+            with st.expander("Personalizar columnas (se conserva al recargar)"):
+                visible = st.multiselect("Columnas visibles", ALL_COLS,
+                            default=st.session_state[layout_key], key="history_visible_cols")
+                if visible != st.session_state[layout_key]:
+                    if st.button("Aplicar columnas visibles", key="apply_visible"):
+                        # Retain the relative order of existing columns.
+                        current = st.session_state[layout_key]
+                        ordered = [c for c in current if c in visible] + [c for c in visible if c not in current]
+                        persist_layout(ordered)
+                        st.rerun()
+                if st.session_state[layout_key]:
+                    move_col = st.selectbox("Columna que quieres mover", st.session_state[layout_key], key="move_col")
+                    up, down = st.columns(2)
+                    with up:
+                        if st.button("⬅ Mover a la izquierda", width="stretch"):
+                            order = st.session_state[layout_key].copy()
+                            idx = order.index(move_col)
+                            if idx > 0:
+                                order[idx-1], order[idx] = order[idx], order[idx-1]
+                                persist_layout(order)
+                                st.rerun()
+                    with down:
+                        if st.button("Mover a la derecha ➡", width="stretch"):
+                            order = st.session_state[layout_key].copy()
+                            idx = order.index(move_col)
+                            if idx < len(order)-1:
+                                order[idx+1], order[idx] = order[idx], order[idx+1]
+                                persist_layout(order)
+                                st.rerun()
+            if "layout_notice" in st.session_state:
+                level, msg = st.session_state.pop("layout_notice")
+                (st.success if level == "success" else st.error)(msg)
+
+            editor_key = f"editor_{year}_{month}"
+
+            def autosave_history():
+                """Runs on cell commit. Validate all edits before any Sheets write."""
+                try:
+                    edited_rows = st.session_state.get(editor_key, {}).get("edited_rows", {})
+                    if not edited_rows:
+                        return
+                    # Re-read to avoid overwriting changes made in another browser/tab.
+                    latest, issues = read_records(ws)
+                    if issues:
+                        raise ValueError("Google Sheets contiene filas pendientes de revisión; no se ha guardado nada.")
+                    changes = []
+                    for raw_idx, patch in edited_rows.items():
+                        idx = int(raw_idx)
+                        if idx < 0 or idx >= len(subset):
+                            raise ValueError("La fila editada ya no existe.")
+                        d = subset[idx]
+                        original = records[d]
+                        current = latest.get(d)
+                        if current is None or current != original:
+                            raise ValueError(f"El día {d:%d/%m/%Y} cambió en Google Sheets. Recarga antes de editarlo.")
+                        if any(c not in ("Laborable", "Horas", "Minutos", "Trabajado", "Motivo") for c in patch):
+                            raise ValueError("Se intentó modificar una columna de solo lectura.")
+                        if "Trabajado" in patch:
+                            seconds = parse_editable_duration(patch["Trabajado"])
+                        elif "Horas" not in patch and "Minutos" not in patch:
+                            seconds = original["seconds"]
+                        else:
+                            hours = patch.get("Horas", df.iloc[idx]["Horas"])
+                            minutes = patch.get("Minutos", df.iloc[idx]["Minutos"])
+                            if isinstance(hours, bool) or isinstance(minutes, bool):
+                                raise ValueError("Las horas y los minutos deben ser numeros enteros.")
+                            try:
+                                h, m = int(hours), int(minutes)
+                                valid = (h == float(hours) and m == float(minutes))
+                            except (TypeError, ValueError, OverflowError):
+                                valid = False
+                            if not valid or not (0 <= h <= 24 and 0 <= m <= 59) or h*60+m > 1440:
+                                raise ValueError("La duración debe estar entre 0:00 y 24:00, con minutos entre 0 y 59.")
+                            seconds = h*3600 + m*60
+                        work = patch.get("Laborable", original["work"])
+                        if not isinstance(work, bool):
+                            raise ValueError("El valor Laborable debe ser Sí o No.")
+                        note = patch.get("Motivo", original.get("note", ""))
+                        if note is None:
+                            note = ""
+                        note = str(note)
+                        if len(note) > 1000:
+                            raise ValueError("El motivo no puede superar 1000 caracteres.")
+                        if seconds != original["seconds"] or work != original["work"] or note != original.get("note", ""):
+                            changes.append((d, seconds, work, note))
+                    for d, seconds, work, note in changes:
+                        save_day(ws, latest, d, seconds=seconds, work=work, note=note)
+                    # Remove pending edits only after all writes succeeded.
+                    st.session_state.pop(editor_key, None)
+                    st.session_state["autosave_notice"] = ("success", f"{len(changes)} día(s) guardado(s) automáticamente en Google Sheets.")
+                except Exception as exc:
+                    st.session_state["autosave_notice"] = ("error", f"No se ha podido completar el guardado: {exc}. Revisa Google Sheets antes de reintentar.")
+
+            # The editor's own drag/reorder/hide interactions are not persistent;
+            # use the settings above to keep column layout across devices/reloads.
+            st.data_editor(df,hide_index=True,width="stretch",key=editor_key,
+                column_order=st.session_state[layout_key],
+                on_change=autosave_history,
+                disabled=["Fecha","Día","Objetivo"],
+                column_config={"Laborable":st.column_config.CheckboxColumn("Laborable"),
+                               "Horas":st.column_config.NumberColumn("Horas",min_value=0,max_value=24,step=1),
+                               "Minutos":st.column_config.NumberColumn("Minutos",min_value=0,max_value=59,step=1),
+                               "Trabajado":st.column_config.TextColumn("Trabajado (H:MM)", help="Edita el total del día, por ejemplo 5:30. Se sustituye el total anterior y se guarda en Google Sheets."),
+                               "Motivo":st.column_config.TextColumn("Motivo")})
+            if "autosave_notice" in st.session_state:
+                level, msg = st.session_state.pop("autosave_notice")
+                (st.success if level == "success" else st.error)(msg)
+            st.caption("Edita «Trabajado» con formato H:MM para corregir el total del día. También puedes editar Horas y Minutos. Los cambios se guardan al confirmar la celda. Los nuevos registros manuales y del cronómetro se SUMAN a las horas existentes. Para conservar columnas ocultas o reordenadas, usa «Personalizar columnas».")
 
 
-st.divider()
-st.markdown("### Herramientas de Google Sheets")
-actions_a, actions_b, actions_c = st.columns(3)
-with actions_a:
-    if st.button("🔄 Recargar Google Sheets", width="stretch"):
-        refresh()
-with actions_b:
-    spreadsheet_id = st.secrets.get("spreadsheet_id", "1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E")
-    st.link_button("📊 Google Sheets", f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit", width="stretch")
-with actions_c:
-    if st.button("🛠 Reparar formato y motivos de la hoja", width="stretch"):
-        try:
-            repair_sheet(ws, records)
-            st.success("Formato y motivos corregidos. Recargando...")
+if show_section("herramientas"):
+    st.divider()
+    st.markdown("### Herramientas de Google Sheets")
+    actions_a, actions_b, actions_c = st.columns(3)
+    with actions_a:
+        if st.button("🔄 Recargar Google Sheets", width="stretch"):
             refresh()
-        except Exception as exc:
-            st.error(f"No se pudo reparar la hoja: {exc}")
+    with actions_b:
+        spreadsheet_id = st.secrets.get("spreadsheet_id", "1FuKT6RSIbmgQlr7LdSiYBHkuMguhfN4Yd_8OPsdCt6E")
+        st.link_button("📊 Google Sheets", f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit", width="stretch")
+    with actions_c:
+        if st.button("🛠 Reparar formato y motivos de la hoja", width="stretch"):
+            try:
+                repair_sheet(ws, records)
+                st.success("Formato y motivos corregidos. Recargando...")
+                refresh()
+            except Exception as exc:
+                st.error(f"No se pudo reparar la hoja: {exc}")
 
 # Sin recarga completa cada segundo: evita pantalla en blanco con cronometro activo.
 
 
-st.divider()
-st.subheader("Prueba de conexión con iCloud")
+if show_section("icloud"):
+    st.divider()
+    st.subheader("Prueba de conexión con iCloud")
 
-if st.button("Comprobar conexión con iCloud"):
+    if st.button("Comprobar conexión con iCloud"):
+        try:
+            obtener_calendario_icloud()
+            st.success("Conexión correcta. Calendario Trabajo encontrado.")
+        except Exception:
+            st.error(
+                "No se ha podido conectar con el calendario Trabajo. "
+                "Revisa las credenciales y el nombre del calendario."
+            )
+
+if show_section("horario"):
+    st.divider()
+    st.markdown("### Mi horario de trabajo")
+    st.caption("Rosa: franjas reales fijas · Azul: franjas previstas editables. Solo el horario previsto se sincroniza con iCloud.")
     try:
-        obtener_calendario_icloud()
-        st.success("Conexión correcta. Calendario Trabajo encontrado.")
-    except Exception:
-        st.error(
-            "No se ha podido conectar con el calendario Trabajo. "
-            "Revisa las credenciales y el nombre del calendario."
-        )
-
-st.divider()
-st.markdown("### Mi horario de trabajo")
-st.caption("Rosa: franjas reales fijas · Azul: franjas previstas editables. Solo el horario previsto se sincroniza con iCloud.")
-try:
-    schedule_base, schedule_exceptions = read_schedule(ws)
-    real_intervals = read_real_intervals(ws)
-except Exception as exc:
-    st.error(f"No se pudo leer el planificador: {exc}")
-else:
-    schedule_col, _unused = st.columns([3, 2])
-    with schedule_col:
-        chosen_day = st.date_input("Día del horario", value=today,
-                                   min_value=date(2026, 1, 1),
-                                   max_value=date(2027, 12, 31),
-                                   key="schedule_date")
-        is_rest = bool(chosen_day.weekday() == 6 or holiday_name(chosen_day))
-        if is_rest:
-            st.info("Este día es domingo o festivo: se mantiene como descanso y no se puede programar trabajo.")
-        elif chosen_day.weekday() == 5:
-            st.caption("Sábado: máximo 2 horas en total.")
-        elif chosen_day in records and not records[chosen_day]["work"]:
-            st.warning("Este día figura como no laborable en el historial. El horario planificado no cambia esa condición.")
-        fixed_slots = real_intervals.get(chosen_day.isoformat(), [])
-        # La tabla A:G guarda totales, no horas exactas. Las franjas reales se
-        # añaden sin sumar otra vez horas ni modificar la deuda.
-        with st.expander("Registrar franjas reales ya trabajadas", expanded=False):
-            st.caption("Indica el intervalo real. Se dibujará en rosa y quedará bloqueado. No suma horas al historial: utiliza el registro de horas existente para eso.")
-            with st.form("new_fixed_slot"):
-                f1, f2 = st.columns(2)
-                with f1:
-                    real_start = st.time_input("Inicio real", value=datetime.strptime("08:00", "%H:%M").time(), step=900)
-                with f2:
-                    real_end = st.time_input("Fin real", value=datetime.strptime("10:00", "%H:%M").time(), step=900)
-                submitted_real = st.form_submit_button("Fijar intervalo realizado")
-            if submitted_real:
-                try:
-                    a, b = clock_quarter(real_start), clock_quarter(real_end)
-                    if real_start.minute % 15 or real_end.minute % 15 or a >= b:
-                        raise ValueError("Selecciona horas crecientes en pasos de 15 minutos")
-                    proposed = normalize_slots(fixed_slots + [[a, b]])
-                    changed = dict(real_intervals)
-                    changed[chosen_day.isoformat()] = proposed
-                    save_real_intervals(ws, changed, real_intervals)
-                    st.success("Franja real guardada, sin modificar las horas contabilizadas")
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"No se pudo fijar la franja: {exc}")
-            if fixed_slots:
-                st.write("Franjas fijadas: " + ", ".join(f"{quarter_label(a)}–{quarter_label(b)}" for a, b in fixed_slots))
-                st.caption("Los intervalos existentes se mantienen fijos. Puedes corregirlos eliminándolos aquí, sin cambiar el historial de horas.")
-                index_remove = st.selectbox("Corregir intervalo", range(len(fixed_slots)), format_func=lambda i: f"{quarter_label(fixed_slots[i][0])}–{quarter_label(fixed_slots[i][1])}")
-                if st.button("Eliminar intervalo seleccionado", key=f"remove_fixed_{chosen_day}"):
+        schedule_base, schedule_exceptions = read_schedule(ws)
+        real_intervals = read_real_intervals(ws)
+    except Exception as exc:
+        st.error(f"No se pudo leer el planificador: {exc}")
+    else:
+        schedule_col, _unused = st.columns([3, 2])
+        with schedule_col:
+            chosen_day = st.date_input("Día del horario", value=today,
+                                       min_value=date(2026, 1, 1),
+                                       max_value=date(2027, 12, 31),
+                                       key="schedule_date")
+            is_rest = bool(chosen_day.weekday() == 6 or holiday_name(chosen_day))
+            if is_rest:
+                st.info("Este día es domingo o festivo: se mantiene como descanso y no se puede programar trabajo.")
+            elif chosen_day.weekday() == 5:
+                st.caption("Sábado: máximo 2 horas en total.")
+            elif chosen_day in records and not records[chosen_day]["work"]:
+                st.warning("Este día figura como no laborable en el historial. El horario planificado no cambia esa condición.")
+            fixed_slots = real_intervals.get(chosen_day.isoformat(), [])
+            # La tabla A:G guarda totales, no horas exactas. Las franjas reales se
+            # añaden sin sumar otra vez horas ni modificar la deuda.
+            with st.expander("Registrar franjas reales ya trabajadas", expanded=False):
+                st.caption("Indica el intervalo real. Se dibujará en rosa y quedará bloqueado. No suma horas al historial: utiliza el registro de horas existente para eso.")
+                with st.form("new_fixed_slot"):
+                    f1, f2 = st.columns(2)
+                    with f1:
+                        real_start = st.time_input("Inicio real", value=datetime.strptime("08:00", "%H:%M").time(), step=900)
+                    with f2:
+                        real_end = st.time_input("Fin real", value=datetime.strptime("10:00", "%H:%M").time(), step=900)
+                    submitted_real = st.form_submit_button("Fijar intervalo realizado")
+                if submitted_real:
                     try:
+                        a, b = clock_quarter(real_start), clock_quarter(real_end)
+                        if real_start.minute % 15 or real_end.minute % 15 or a >= b:
+                            raise ValueError("Selecciona horas crecientes en pasos de 15 minutos")
+                        proposed = normalize_slots(fixed_slots + [[a, b]])
                         changed = dict(real_intervals)
-                        remainder = [x for i, x in enumerate(fixed_slots) if i != index_remove]
-                        if remainder:
-                            changed[chosen_day.isoformat()] = remainder
-                        else:
-                            changed.pop(chosen_day.isoformat(), None)
+                        changed[chosen_day.isoformat()] = proposed
                         save_real_intervals(ws, changed, real_intervals)
+                        st.success("Franja real guardada, sin modificar las horas contabilizadas")
                         st.rerun()
                     except Exception as exc:
-                        st.error(f"No se pudo eliminar: {exc}")
-        actual_seconds = records.get(chosen_day, {}).get("seconds", 0)
-        target_seconds = DAILY_SECONDS if records.get(chosen_day, {}).get("work", default_workday(chosen_day)[0]) else 0
-        st.caption(f"Horas trabajadas: {fmt(actual_seconds)} · Para el objetivo diario faltan: {fmt(max(0, target_seconds - actual_seconds))}")
-        if abs(sum((b-a)*900 for a,b in fixed_slots) - actual_seconds) > 900 and fixed_slots:
-            st.info("La duración de los bloques rosas no coincide con el total registrado: puede haber horas sin horario exacto identificado.")
-        icloud_enabled = st.checkbox(
-            "Sincronizar este horario con iCloud · Trabajo",
-            value=False,
-            help="Actívalo para consultar y guardar eventos de este día en iCloud. Solo se modificarán eventos creados por este planificador.",
-            key="icloud_sync_enabled",
-        )
-        cloud_events = None
-        cloud_signature = None
-        cloud_error = None
-        if icloud_enabled:
-            try:
-                cloud_client, cloud_cal = icloud_calendar()
-                try:
-                    cloud_events = icloud_events(chosen_day, cloud_cal)
-                    cloud_signature = icloud_fingerprint(cloud_events)
-                finally:
-                    cloud_client.close()
-            except Exception as exc:
-                cloud_error = str(exc)
-                st.error(f"No se pudo leer iCloud: {cloud_error}. No se permitirá guardar en modo iCloud.")
-        current_slots = schedule_for_day(chosen_day, schedule_base, schedule_exceptions)
-        if cloud_events is not None:
-            # Si ya hay eventos gestionados, iCloud prevalece sobre Sheets.
-            # Sin eventos, se ofrece el horario habitual como borrador inicial.
-            if cloud_events:
-                current_slots = [[a, b] for a, b, *_ in cloud_events]
-            st.caption(f"iCloud: {len(cloud_events)} franja(s) sincronizada(s). Si no hay ninguna, se muestra el horario habitual como borrador. Los eventos ajenos no se modifican.")
-        # Solo mostrar como editables las porciones no realizadas.
-        current_slots = strip_fixed(current_slots, fixed_slots)
-        # Un valor del componente se aplica solo una vez y solo a su fecha.
-        timeline = timeline_component()
-        revision = json.dumps([chosen_day.isoformat(), current_slots, fixed_slots, cloud_signature, icloud_enabled], ensure_ascii=False)
-        event = timeline(day=chosen_day.isoformat(), slots=current_slots, fixed=fixed_slots,
-                         worked_seconds=actual_seconds, pending_seconds=max(0, target_seconds - actual_seconds),
-                         base=strip_fixed(schedule_for_day(chosen_day, schedule_base, {k:v for k,v in schedule_exceptions.items() if k != chosen_day.isoformat()}), fixed_slots), readonly=(is_rest or (icloud_enabled and cloud_error is not None)), max_quarters=(8 if chosen_day.weekday() == 5 else 96), revision=revision,
-                         key=f"timeline_{chosen_day.isoformat()}", default=None)
-        if event is not None and isinstance(event, dict):
-            signature = json.dumps(event, sort_keys=True)
-            event_key = f"schedule_last_event_{chosen_day.isoformat()}"
-            if st.session_state.get(event_key) != signature:
-                try:
-                    if event.get("day") != chosen_day.isoformat():
-                        raise ValueError("La fecha del cambio no coincide")
-                    mode = event.get("mode")
-                    if mode not in ("day", "default", "reset"):
-                        raise ValueError("Operacion no reconocida")
-                    if is_rest:
-                        raise ValueError("No se puede trabajar en festivos o domingos")
-                    new_slots = normalize_slots(event.get("slots", []))
-                    if strip_fixed(new_slots, fixed_slots) != new_slots:
-                        raise ValueError("Los horarios previstos no pueden solaparse con los bloques reales")
-                    if read_real_intervals(ws) != real_intervals:
-                        raise ValueError("Las franjas reales cambiaron. Recarga para continuar")
-                    if chosen_day.weekday() == 5 and sum(b-a for a,b in new_slots + fixed_slots) > 8:
-                        raise ValueError("Los sabados no pueden superar 2 horas")
-                    # Comprobar que la configuracion no ha cambiado en otra sesion.
-                    latest_base, latest_exceptions = read_schedule(ws)
-                    if latest_base != schedule_base or latest_exceptions != schedule_exceptions:
-                        raise ValueError("El horario ha cambiado en Google Sheets. Recarga antes de editar.")
-                    if mode == "default":
-                        # Guardar el horario habitual sin copiar bloques ya realizados.
-                        schedule_base = new_slots
-                        schedule_exceptions.pop(chosen_day.isoformat(), None)
-                    elif mode == "reset":
-                        schedule_exceptions.pop(chosen_day.isoformat(), None)
-                    else:
-                        schedule_exceptions[chosen_day.isoformat()] = new_slots
-                    if icloud_enabled:
-                        if cloud_error is not None or cloud_signature is None:
-                            raise ValueError("No hay conexión válida con iCloud")
-                        cloud_client, cloud_cal = icloud_calendar()
+                        st.error(f"No se pudo fijar la franja: {exc}")
+                if fixed_slots:
+                    st.write("Franjas fijadas: " + ", ".join(f"{quarter_label(a)}–{quarter_label(b)}" for a, b in fixed_slots))
+                    st.caption("Los intervalos existentes se mantienen fijos. Puedes corregirlos eliminándolos aquí, sin cambiar el historial de horas.")
+                    index_remove = st.selectbox("Corregir intervalo", range(len(fixed_slots)), format_func=lambda i: f"{quarter_label(fixed_slots[i][0])}–{quarter_label(fixed_slots[i][1])}")
+                    if st.button("Eliminar intervalo seleccionado", key=f"remove_fixed_{chosen_day}"):
                         try:
-                            latest_cloud = icloud_events(chosen_day, cloud_cal)
-                            if icloud_fingerprint(latest_cloud) != cloud_signature:
-                                raise ValueError("Los eventos de iCloud cambiaron mientras editabas. Recarga antes de guardar.")
-                            save_icloud_slots(cloud_cal, chosen_day, latest_cloud, new_slots)
-                        finally:
-                            cloud_client.close()
-                    # Se escribe Sheets después de iCloud. Si falla Sheets, se
-                    # informa del guardado parcial y el siguiente refresco lee iCloud.
+                            changed = dict(real_intervals)
+                            remainder = [x for i, x in enumerate(fixed_slots) if i != index_remove]
+                            if remainder:
+                                changed[chosen_day.isoformat()] = remainder
+                            else:
+                                changed.pop(chosen_day.isoformat(), None)
+                            save_real_intervals(ws, changed, real_intervals)
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"No se pudo eliminar: {exc}")
+            actual_seconds = records.get(chosen_day, {}).get("seconds", 0)
+            target_seconds = DAILY_SECONDS if records.get(chosen_day, {}).get("work", default_workday(chosen_day)[0]) else 0
+            st.caption(f"Horas trabajadas: {fmt(actual_seconds)} · Para el objetivo diario faltan: {fmt(max(0, target_seconds - actual_seconds))}")
+            if abs(sum((b-a)*900 for a,b in fixed_slots) - actual_seconds) > 900 and fixed_slots:
+                st.info("La duración de los bloques rosas no coincide con el total registrado: puede haber horas sin horario exacto identificado.")
+            icloud_enabled = st.checkbox(
+                "Sincronizar este horario con iCloud · Trabajo",
+                value=False,
+                help="Actívalo para consultar y guardar eventos de este día en iCloud. Solo se modificarán eventos creados por este planificador.",
+                key="icloud_sync_enabled",
+            )
+            cloud_events = None
+            cloud_signature = None
+            cloud_error = None
+            if icloud_enabled:
+                try:
+                    cloud_client, cloud_cal = icloud_calendar()
                     try:
-                        write_schedule(ws, schedule_base, schedule_exceptions)
-                    except Exception as exc:
-                        if icloud_enabled:
-                            raise RuntimeError(f"iCloud se actualizó, pero Google Sheets falló: {exc}") from exc
-                        raise
-                    st.session_state[event_key] = signature
-                    st.toast("Horario guardado en iCloud y Google Sheets" if icloud_enabled else "Horario guardado en Google Sheets")
-                    st.rerun()
+                        cloud_events = icloud_events(chosen_day, cloud_cal)
+                        cloud_signature = icloud_fingerprint(cloud_events)
+                    finally:
+                        cloud_client.close()
                 except Exception as exc:
-                    st.error(f"No se pudo guardar el horario: {exc}")
-        st.caption("«Guardar como habitual» prepara el horario para futuros días laborables; «Restablecer día» recupera el horario habitual. Ambos se aplican solo al pulsar «Guardar cambios».")
-        if chosen_day <= DEADLINE:
-            plan = recovery_plan(records, today, DEADLINE, expected_hist - worked_hist)
-            if plan is not None:
-                _, needed, _, _, _ = plan
-                st.caption(f"Para llegar al 15/12/2026, las horas pendientes estimadas desde hoy son {fmt(needed)}. El horario es orientativo; registra las horas reales por separado.")
+                    cloud_error = str(exc)
+                    st.error(f"No se pudo leer iCloud: {cloud_error}. No se permitirá guardar en modo iCloud.")
+            current_slots = schedule_for_day(chosen_day, schedule_base, schedule_exceptions)
+            if cloud_events is not None:
+                # Si ya hay eventos gestionados, iCloud prevalece sobre Sheets.
+                # Sin eventos, se ofrece el horario habitual como borrador inicial.
+                if cloud_events:
+                    current_slots = [[a, b] for a, b, *_ in cloud_events]
+                st.caption(f"iCloud: {len(cloud_events)} franja(s) sincronizada(s). Si no hay ninguna, se muestra el horario habitual como borrador. Los eventos ajenos no se modifican.")
+            # Solo mostrar como editables las porciones no realizadas.
+            current_slots = strip_fixed(current_slots, fixed_slots)
+            # Un valor del componente se aplica solo una vez y solo a su fecha.
+            timeline = timeline_component()
+            revision = json.dumps([chosen_day.isoformat(), current_slots, fixed_slots, cloud_signature, icloud_enabled], ensure_ascii=False)
+            event = timeline(day=chosen_day.isoformat(), slots=current_slots, fixed=fixed_slots,
+                             worked_seconds=actual_seconds, pending_seconds=max(0, target_seconds - actual_seconds),
+                             base=strip_fixed(schedule_for_day(chosen_day, schedule_base, {k:v for k,v in schedule_exceptions.items() if k != chosen_day.isoformat()}), fixed_slots), readonly=(is_rest or (icloud_enabled and cloud_error is not None)), max_quarters=(8 if chosen_day.weekday() == 5 else 96), revision=revision,
+                             key=f"timeline_{chosen_day.isoformat()}", default=None)
+            if event is not None and isinstance(event, dict):
+                signature = json.dumps(event, sort_keys=True)
+                event_key = f"schedule_last_event_{chosen_day.isoformat()}"
+                if st.session_state.get(event_key) != signature:
+                    try:
+                        if event.get("day") != chosen_day.isoformat():
+                            raise ValueError("La fecha del cambio no coincide")
+                        mode = event.get("mode")
+                        if mode not in ("day", "default", "reset"):
+                            raise ValueError("Operacion no reconocida")
+                        if is_rest:
+                            raise ValueError("No se puede trabajar en festivos o domingos")
+                        new_slots = normalize_slots(event.get("slots", []))
+                        if strip_fixed(new_slots, fixed_slots) != new_slots:
+                            raise ValueError("Los horarios previstos no pueden solaparse con los bloques reales")
+                        if read_real_intervals(ws) != real_intervals:
+                            raise ValueError("Las franjas reales cambiaron. Recarga para continuar")
+                        if chosen_day.weekday() == 5 and sum(b-a for a,b in new_slots + fixed_slots) > 8:
+                            raise ValueError("Los sabados no pueden superar 2 horas")
+                        # Comprobar que la configuracion no ha cambiado en otra sesion.
+                        latest_base, latest_exceptions = read_schedule(ws)
+                        if latest_base != schedule_base or latest_exceptions != schedule_exceptions:
+                            raise ValueError("El horario ha cambiado en Google Sheets. Recarga antes de editar.")
+                        if mode == "default":
+                            # Guardar el horario habitual sin copiar bloques ya realizados.
+                            schedule_base = new_slots
+                            schedule_exceptions.pop(chosen_day.isoformat(), None)
+                        elif mode == "reset":
+                            schedule_exceptions.pop(chosen_day.isoformat(), None)
+                        else:
+                            schedule_exceptions[chosen_day.isoformat()] = new_slots
+                        if icloud_enabled:
+                            if cloud_error is not None or cloud_signature is None:
+                                raise ValueError("No hay conexión válida con iCloud")
+                            cloud_client, cloud_cal = icloud_calendar()
+                            try:
+                                latest_cloud = icloud_events(chosen_day, cloud_cal)
+                                if icloud_fingerprint(latest_cloud) != cloud_signature:
+                                    raise ValueError("Los eventos de iCloud cambiaron mientras editabas. Recarga antes de guardar.")
+                                save_icloud_slots(cloud_cal, chosen_day, latest_cloud, new_slots)
+                            finally:
+                                cloud_client.close()
+                        # Se escribe Sheets después de iCloud. Si falla Sheets, se
+                        # informa del guardado parcial y el siguiente refresco lee iCloud.
+                        try:
+                            write_schedule(ws, schedule_base, schedule_exceptions)
+                        except Exception as exc:
+                            if icloud_enabled:
+                                raise RuntimeError(f"iCloud se actualizó, pero Google Sheets falló: {exc}") from exc
+                            raise
+                        st.session_state[event_key] = signature
+                        st.toast("Horario guardado en iCloud y Google Sheets" if icloud_enabled else "Horario guardado en Google Sheets")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"No se pudo guardar el horario: {exc}")
+            st.caption("«Guardar como habitual» prepara el horario para futuros días laborables; «Restablecer día» recupera el horario habitual. Ambos se aplican solo al pulsar «Guardar cambios».")
+            if chosen_day <= DEADLINE:
+                plan = recovery_plan(records, today, DEADLINE, expected_hist - worked_hist)
+                if plan is not None:
+                    _, needed, _, _, _ = plan
+                    st.caption(f"Para llegar al 15/12/2026, las horas pendientes estimadas desde hoy son {fmt(needed)}. El horario es orientativo; registra las horas reales por separado.")
 
 
