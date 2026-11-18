@@ -1,4 +1,4 @@
-"""Control de horas: Streamlit + Google Sheets. Una hoja visible."""
+"""Control de horas: Streamlit + Google Sheets. Fase 5: estilo glass."""
 from __future__ import annotations
 
 import calendar
@@ -20,21 +20,139 @@ from caldav import DAVClient
 from icalendar import Calendar as ICalendar, Event as IEvent
 from uuid import uuid4
 import hashlib
-TIMELINE_HTML = '<!doctype html><html lang="es"><head><meta charset="utf-8"><style>\n:root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;padding:3px;font:13px system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text-color,#263445);background:transparent}.panel{padding:14px;border:1px solid var(--secondary-background-color,#e4e8ee);border-radius:14px}.heading{display:flex;justify-content:space-between;gap:12px;align-items:center}.muted{font-size:11px;opacity:.72}.total{font-size:20px;font-weight:750}.axis{display:flex;justify-content:space-between;margin:17px 0 8px;font-size:10px;opacity:.7}.track{position:relative;height:44px;border-radius:9px;background:var(--secondary-background-color,#e8edf4);touch-action:none}.slot,.fixed{position:absolute;top:5px;height:34px;border-radius:7px;overflow:visible}.slot{background:var(--primary-color,#2563eb);cursor:grab;touch-action:none}.slot.active{outline:2px solid var(--text-color,#263445);outline-offset:2px}.fixed{background:#ec4899;cursor:not-allowed;z-index:1}.handle{position:absolute;top:1px;width:10px;height:32px;background:#fff7;border-radius:3px;cursor:ew-resize;touch-action:none}.handle.left{left:0}.handle.right{right:0}.slotlabel{text-align:center;line-height:34px;color:#fff;font-size:10px;white-space:nowrap;overflow:hidden;padding:0 10px;pointer-events:none}.legend{display:flex;gap:16px;flex-wrap:wrap;margin:10px 0;font-size:11px}.swatch{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px}.chips{display:flex;gap:6px;flex-wrap:wrap;min-height:32px;margin:10px 0}.chip,button{cursor:pointer;font:12px system-ui,sans-serif;color:var(--text-color,#263445);background:var(--secondary-background-color,#f1f4f8);border:1px solid #8b9baa55;border-radius:8px;padding:7px 10px}.chip.active{border-color:var(--primary-color,#2563eb);font-weight:700}button:disabled{opacity:.45;cursor:default}.actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.spacer{flex:1}.save{background:var(--primary-color,#2563eb);border:0;color:#fff;font-weight:650}.status{margin-top:10px;min-height:16px;font-size:11px;opacity:.76}.error{color:#dc2626;font-size:11px;min-height:15px}.data{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px}.data strong{display:block;font-size:16px}.data span{font-size:11px;opacity:.72}\n</style></head><body><div class="panel"><div class="heading"><div><strong>Franjas del día</strong><div class="muted">Rosa: realizado y fijo · Azul: previsto y editable · pasos de 15 minutos</div></div><div style="text-align:right"><div id="total" class="total">0 h 00 min</div><div class="muted">Planificado</div></div></div><div class="axis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div><div id="track" class="track"></div><div class="legend"><span><i class="swatch" style="background:#ec4899"></i>Realizado (inamovible)</span><span><i class="swatch" style="background:#3b82f6"></i>Planificado (editable)</span></div><div id="chips" class="chips"></div><div class="actions"><button id="add">+ Añadir</button><button id="remove">− Eliminar</button><button id="reset">Restablecer día</button><button id="default">Guardar como habitual</button><div class="spacer"></div><button id="save" class="save">Guardar cambios</button></div><div class="data"><div><span>Registrado en Sheets</span><strong id="worked">0 h 00 min</strong></div><div><span>Pendiente del objetivo diario</span><strong id="pending">0 h 00 min</strong></div><div><span>Franjas reales identificadas</span><strong id="fixedtotal">0 h 00 min</strong></div></div><div id="status" class="status">Sin cambios pendientes</div><div id="error" class="error"></div></div>\n<script>\nlet slots=[],fixed=[],active=-1,readonly=false,day=\'\',initialized=false,drag=null,base=[],dirty=false,mode=\'day\';let revision=\'\',maxQuarters=96;\nconst $=id=>document.getElementById(id);const fmt=n=>String(Math.floor(n/4)).padStart(2,\'0\')+\':\'+String(n%4*15).padStart(2,\'0\');const human=n=>Math.floor(n/60)+\' h \'+String(n%60).padStart(2,\'0\')+\' min\';const clone=x=>x.map(s=>s.slice());\nconst valid=arr=>Array.isArray(arr)&&arr.length<=20&&arr.every(s=>Array.isArray(s)&&s.length===2&&Number.isInteger(s[0])&&Number.isInteger(s[1])&&s[0]>=0&&s[1]<=96&&s[0]<s[1])&&arr.every((s,i)=>arr.every((t,j)=>i===j||s[1]<=t[0]||t[1]<=s[0]));\nconst overlap=(a,b)=>a.some(s=>b.some(t=>s[0]<t[1]&&t[0]<s[1]));const sum=x=>x.reduce((t,s)=>t+s[1]-s[0],0);\nfunction status(){ $(\'status\').textContent=dirty?\'Cambios sin guardar · pulsa Guardar cambios\':\'Sin cambios pendientes\';$(\'save\').disabled=readonly||!dirty;}\nfunction change(){dirty=true;mode=\'day\';status();$(\'error\').textContent=\'\';}\nfunction draw(){slots.sort((a,b)=>a[0]-b[0]);$(\'track\').innerHTML=\'\';$(\'chips\').innerHTML=\'\';\n fixed.forEach(s=>{let e=document.createElement(\'div\');e.className=\'fixed\';e.style.left=s[0]/96*100+\'%\';e.style.width=(s[1]-s[0])/96*100+\'%\';e.innerHTML=\'<div class="slotlabel">✓ \'+fmt(s[0])+\'–\'+fmt(s[1])+\'</div>\';e.title=\'Bloque realizado: fijo\';$(\'track\').appendChild(e)});\n slots.forEach((s,i)=>{let e=document.createElement(\'div\');e.className=\'slot\'+(active===i?\' active\':\'\');e.style.left=s[0]/96*100+\'%\';e.style.width=(s[1]-s[0])/96*100+\'%\';e.innerHTML=\'<div class="handle left" data-edge="start"></div><div class="slotlabel">\'+fmt(s[0])+\'–\'+fmt(s[1])+\'</div><div class="handle right" data-edge="end"></div>\';\n e.addEventListener(\'pointerdown\',ev=>{if(readonly)return;active=i;drag={i,edge:ev.target.dataset.edge||\'move\',x:ev.clientX,orig:s.slice(),pointer:ev.pointerId};e.setPointerCapture(ev.pointerId);ev.preventDefault();});\n e.addEventListener(\'pointermove\',ev=>{if(!drag||drag.i!==i||drag.pointer!==ev.pointerId)return;let width=$(\'track\').getBoundingClientRect().width,delta=Math.round((ev.clientX-drag.x)/width*96),a=drag.orig.slice();if(drag.edge===\'start\')a[0]=Math.max(0,Math.min(a[1]-1,a[0]+delta));else if(drag.edge===\'end\')a[1]=Math.min(96,Math.max(a[0]+1,a[1]+delta));else{let len=a[1]-a[0];a[0]=Math.max(0,Math.min(96-len,a[0]+delta));a[1]=a[0]+len}let next=clone(slots);next[i]=a;if(valid(next)&&!overlap(next,fixed)){slots[i]=a;e.style.left=a[0]/96*100+\'%\';e.style.width=(a[1]-a[0])/96*100+\'%\';e.querySelector(\'.slotlabel\').textContent=fmt(a[0])+\'–\'+fmt(a[1]);$(\'total\').textContent=human(sum(slots)*15);change();}});\n e.addEventListener(\'pointerup\',()=>{if(drag&&drag.i===i){drag=null;draw()}});e.addEventListener(\'pointercancel\',()=>{drag=null;draw()});$(\'track\').appendChild(e);let c=document.createElement(\'button\');c.className=\'chip\'+(active===i?\' active\':\'\');c.textContent=fmt(s[0])+\'–\'+fmt(s[1]);c.onclick=()=>{active=i;draw()};$(\'chips\').appendChild(c)});\n $(\'total\').textContent=human(sum(slots)*15);$(\'fixedtotal\').textContent=human(sum(fixed)*15);$(\'remove\').disabled=readonly||active<0||active>=slots.length;for(let key of [\'add\',\'reset\',\'default\'])$(key).disabled=readonly;status();}\n $(\'add\').onclick=()=>{for(let a=32;a<=92;a++){let x=[a,a+4];if(valid([...slots,x])&&!overlap([...slots,x],fixed)&&sum([...slots,x])+sum(fixed)<=maxQuarters){slots.push(x);active=slots.length-1;change();draw();return}}$(\'error\').textContent=\'No cabe otra franja de una hora sin solaparse o exceder el límite.\'};\n $(\'remove\').onclick=()=>{if(active<0)return;slots.splice(active,1);active=slots.length?0:-1;change();draw()};\n $(\'reset\').onclick=()=>{slots=clone(base);slots=trim(slots,fixed);active=slots.length?0:-1;mode=\'reset\';dirty=true;draw()};\n $(\'default\').onclick=()=>{if(readonly)return;mode=\'default\';dirty=true;status();$(\'status\').textContent=\'Se guardará como horario habitual al pulsar Guardar cambios\'};\n function trim(arr,ex){let out=[];for(const [a,b] of arr){let pieces=[[a,b]];for(const [x,y] of ex){let next=[];for(const [m,n] of pieces){if(n<=x||m>=y)next.push([m,n]);else{if(m<x)next.push([m,x]);if(y<n)next.push([y,n]);}}pieces=next;}out.push(...pieces)}return out.filter(s=>s[0]<s[1]);}\n $(\'save\').onclick=()=>{if(!dirty||readonly)return;if(!valid(slots)||overlap(slots,fixed)||sum(slots)+sum(fixed)>maxQuarters){$(\'error\').textContent=\'Hay solapamiento o se supera el máximo del día\';return}window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:setComponentValue\',value:{day,slots:clone(slots),mode}},\'*\');$(\'save\').disabled=true;$(\'status\').textContent=\'Guardando…\'};\n window.addEventListener(\'message\',e=>{if(e.data.type!==\'streamlit:render\')return;const a=e.data.args||{};const theme=e.data.theme||a.theme||{};for(const [key,css] of [[\'primaryColor\',\'--primary-color\'],[\'backgroundColor\',\'--background-color\'],[\'secondaryBackgroundColor\',\'--secondary-background-color\'],[\'textColor\',\'--text-color\']]){if(theme[key])document.documentElement.style.setProperty(css,theme[key])}if(!initialized||day!==a.day||revision!==a.revision){day=a.day;revision=a.revision;slots=clone(a.slots||[]);fixed=clone(a.fixed||[]);base=clone(a.base||[]);readonly=!!a.readonly;maxQuarters=a.max_quarters||96;active=slots.length?0:-1;dirty=false;mode=\'day\';initialized=true;draw()}$(\'worked\').textContent=human(a.worked_seconds/60||0);$(\'pending\').textContent=human(a.pending_seconds/60||0)});\n window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:componentReady\',apiVersion:1},\'*\');window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:setFrameHeight\',height:300},\'*\');\n</script></body></html>'
+TIMELINE_HTML = '<!doctype html><html lang="es"><head><meta charset="utf-8"><style>\n:root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;padding:3px;font:13px system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text-color,#263445);background:transparent}.panel{padding:14px;border:1px solid var(--secondary-background-color,#e4e8ee);border-radius:14px}.heading{display:flex;justify-content:space-between;gap:12px;align-items:center}.muted{font-size:11px;opacity:.72}.total{font-size:20px;font-weight:750}.axis{display:flex;justify-content:space-between;margin:17px 0 8px;font-size:10px;opacity:.7}.track{position:relative;height:44px;border-radius:9px;background:var(--secondary-background-color,#e8edf4);touch-action:none}.slot,.fixed{position:absolute;top:5px;height:34px;border-radius:7px;overflow:visible}.slot{background:var(--primary-color,#2563eb);cursor:grab;touch-action:none}.slot.active{outline:2px solid var(--text-color,#263445);outline-offset:2px}.fixed{background:#ec4899;cursor:not-allowed;z-index:1}.handle{position:absolute;top:1px;width:10px;height:32px;background:#fff7;border-radius:3px;cursor:ew-resize;touch-action:none}.handle.left{left:0}.handle.right{right:0}.slotlabel{text-align:center;line-height:34px;color:#fff;font-size:10px;white-space:nowrap;overflow:hidden;padding:0 10px;pointer-events:none}.legend{display:flex;gap:16px;flex-wrap:wrap;margin:10px 0;font-size:11px}.swatch{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px}.chips{display:flex;gap:6px;flex-wrap:wrap;min-height:32px;margin:10px 0}.chip,button{cursor:pointer;font:12px system-ui,sans-serif;color:var(--text-color,#263445);background:var(--secondary-background-color,#f1f4f8);border:1px solid #8b9baa55;border-radius:8px;padding:7px 10px}.chip.active{border-color:var(--primary-color,#2563eb);font-weight:700}button:disabled{opacity:.45;cursor:default}.actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.spacer{flex:1}.save{background:var(--primary-color,#2563eb);border:0;color:#fff;font-weight:650}.status{margin-top:10px;min-height:16px;font-size:11px;opacity:.76}.error{color:#dc2626;font-size:11px;min-height:15px}.data{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px}.data strong{display:block;font-size:16px}.data span{font-size:11px;opacity:.72}\n\n/* Fase 5: glass styling inside the isolated timeline iframe. */\nbody{color:#eef2ff;background:transparent}\n.panel{border:1px solid rgba(200,214,255,.24);border-radius:18px;background:linear-gradient(145deg,rgba(38,49,77,.88),rgba(17,26,47,.92));box-shadow:0 10px 28px #0003;backdrop-filter:blur(16px);padding:16px}\n.heading strong{font-size:15px;letter-spacing:-.02em}.total{color:#f7f8ff;letter-spacing:-.04em}.muted,.axis,.status,.data span{color:#b4c1d9;opacity:1}\n.track{background:#08090d;border:1px solid rgba(185,204,245,.16);border-radius:11px}\n.slot{background:linear-gradient(115deg,#2563eb,#60a5fa);box-shadow:0 3px 10px #0004;border:1px solid #ffffff24}\n.fixed{background:linear-gradient(120deg,#be185d,#ec4899);box-shadow:0 3px 10px #0004;border:1px solid #ffffff24}\n.handle{background:rgba(255,255,255,.73)}\n.chip,button{border-radius:10px;border:1px solid rgba(184,202,242,.26);background:rgba(42,56,87,.88);color:#eef2ff;transition:background .15s ease,transform .15s ease}\n.chip:hover,button:hover:not(:disabled){background:rgba(67,86,129,.95);transform:translateY(-1px)}\n.chip.active{border-color:#93c5fd;color:#bfdbfe}.save{background:linear-gradient(120deg,#2563eb,#3b82f6);border:1px solid #ffffff38;color:#fff}\nbutton:focus-visible{outline:2px solid #f472b6;outline-offset:2px}.data strong{color:#fff}\n@media(max-width:480px){.panel{padding:11px}.heading{align-items:flex-start}.total{font-size:17px}.slotlabel{font-size:9px}.actions{gap:5px}}\n@media(prefers-reduced-motion:reduce){button,.chip{transition:none}}\n</style></head><body><div class="panel"><div class="heading"><div><strong>Franjas del día</strong><div class="muted">Rosa: realizado y fijo · Azul: previsto y editable · pasos de 15 minutos</div></div><div style="text-align:right"><div id="total" class="total">0 h 00 min</div><div class="muted">Planificado</div></div></div><div class="axis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div><div id="track" class="track"></div><div class="legend"><span><i class="swatch" style="background:#ec4899"></i>Realizado (inamovible)</span><span><i class="swatch" style="background:#3b82f6"></i>Planificado (editable)</span></div><div id="chips" class="chips"></div><div class="actions"><button id="add">+ Añadir</button><button id="remove">− Eliminar</button><button id="reset">Restablecer día</button><button id="default">Guardar como habitual</button><div class="spacer"></div><button id="save" class="save">Guardar cambios</button></div><div class="data"><div><span>Registrado en Sheets</span><strong id="worked">0 h 00 min</strong></div><div><span>Pendiente del objetivo diario</span><strong id="pending">0 h 00 min</strong></div><div><span>Franjas reales identificadas</span><strong id="fixedtotal">0 h 00 min</strong></div></div><div id="status" class="status">Sin cambios pendientes</div><div id="error" class="error"></div></div>\n<script>\nlet slots=[],fixed=[],active=-1,readonly=false,day=\'\',initialized=false,drag=null,base=[],dirty=false,mode=\'day\';let revision=\'\',maxQuarters=96;\nconst $=id=>document.getElementById(id);const fmt=n=>String(Math.floor(n/4)).padStart(2,\'0\')+\':\'+String(n%4*15).padStart(2,\'0\');const human=n=>Math.floor(n/60)+\' h \'+String(n%60).padStart(2,\'0\')+\' min\';const clone=x=>x.map(s=>s.slice());\nconst valid=arr=>Array.isArray(arr)&&arr.length<=20&&arr.every(s=>Array.isArray(s)&&s.length===2&&Number.isInteger(s[0])&&Number.isInteger(s[1])&&s[0]>=0&&s[1]<=96&&s[0]<s[1])&&arr.every((s,i)=>arr.every((t,j)=>i===j||s[1]<=t[0]||t[1]<=s[0]));\nconst overlap=(a,b)=>a.some(s=>b.some(t=>s[0]<t[1]&&t[0]<s[1]));const sum=x=>x.reduce((t,s)=>t+s[1]-s[0],0);\nfunction status(){ $(\'status\').textContent=dirty?\'Cambios sin guardar · pulsa Guardar cambios\':\'Sin cambios pendientes\';$(\'save\').disabled=readonly||!dirty;}\nfunction change(){dirty=true;mode=\'day\';status();$(\'error\').textContent=\'\';}\nfunction draw(){slots.sort((a,b)=>a[0]-b[0]);$(\'track\').innerHTML=\'\';$(\'chips\').innerHTML=\'\';\n fixed.forEach(s=>{let e=document.createElement(\'div\');e.className=\'fixed\';e.style.left=s[0]/96*100+\'%\';e.style.width=(s[1]-s[0])/96*100+\'%\';e.innerHTML=\'<div class="slotlabel">✓ \'+fmt(s[0])+\'–\'+fmt(s[1])+\'</div>\';e.title=\'Bloque realizado: fijo\';$(\'track\').appendChild(e)});\n slots.forEach((s,i)=>{let e=document.createElement(\'div\');e.className=\'slot\'+(active===i?\' active\':\'\');e.style.left=s[0]/96*100+\'%\';e.style.width=(s[1]-s[0])/96*100+\'%\';e.innerHTML=\'<div class="handle left" data-edge="start"></div><div class="slotlabel">\'+fmt(s[0])+\'–\'+fmt(s[1])+\'</div><div class="handle right" data-edge="end"></div>\';\n e.addEventListener(\'pointerdown\',ev=>{if(readonly)return;active=i;drag={i,edge:ev.target.dataset.edge||\'move\',x:ev.clientX,orig:s.slice(),pointer:ev.pointerId};e.setPointerCapture(ev.pointerId);ev.preventDefault();});\n e.addEventListener(\'pointermove\',ev=>{if(!drag||drag.i!==i||drag.pointer!==ev.pointerId)return;let width=$(\'track\').getBoundingClientRect().width,delta=Math.round((ev.clientX-drag.x)/width*96),a=drag.orig.slice();if(drag.edge===\'start\')a[0]=Math.max(0,Math.min(a[1]-1,a[0]+delta));else if(drag.edge===\'end\')a[1]=Math.min(96,Math.max(a[0]+1,a[1]+delta));else{let len=a[1]-a[0];a[0]=Math.max(0,Math.min(96-len,a[0]+delta));a[1]=a[0]+len}let next=clone(slots);next[i]=a;if(valid(next)&&!overlap(next,fixed)){slots[i]=a;e.style.left=a[0]/96*100+\'%\';e.style.width=(a[1]-a[0])/96*100+\'%\';e.querySelector(\'.slotlabel\').textContent=fmt(a[0])+\'–\'+fmt(a[1]);$(\'total\').textContent=human(sum(slots)*15);change();}});\n e.addEventListener(\'pointerup\',()=>{if(drag&&drag.i===i){drag=null;draw()}});e.addEventListener(\'pointercancel\',()=>{drag=null;draw()});$(\'track\').appendChild(e);let c=document.createElement(\'button\');c.className=\'chip\'+(active===i?\' active\':\'\');c.textContent=fmt(s[0])+\'–\'+fmt(s[1]);c.onclick=()=>{active=i;draw()};$(\'chips\').appendChild(c)});\n $(\'total\').textContent=human(sum(slots)*15);$(\'fixedtotal\').textContent=human(sum(fixed)*15);$(\'remove\').disabled=readonly||active<0||active>=slots.length;for(let key of [\'add\',\'reset\',\'default\'])$(key).disabled=readonly;status();}\n $(\'add\').onclick=()=>{for(let a=32;a<=92;a++){let x=[a,a+4];if(valid([...slots,x])&&!overlap([...slots,x],fixed)&&sum([...slots,x])+sum(fixed)<=maxQuarters){slots.push(x);active=slots.length-1;change();draw();return}}$(\'error\').textContent=\'No cabe otra franja de una hora sin solaparse o exceder el límite.\'};\n $(\'remove\').onclick=()=>{if(active<0)return;slots.splice(active,1);active=slots.length?0:-1;change();draw()};\n $(\'reset\').onclick=()=>{slots=clone(base);slots=trim(slots,fixed);active=slots.length?0:-1;mode=\'reset\';dirty=true;draw()};\n $(\'default\').onclick=()=>{if(readonly)return;mode=\'default\';dirty=true;status();$(\'status\').textContent=\'Se guardará como horario habitual al pulsar Guardar cambios\'};\n function trim(arr,ex){let out=[];for(const [a,b] of arr){let pieces=[[a,b]];for(const [x,y] of ex){let next=[];for(const [m,n] of pieces){if(n<=x||m>=y)next.push([m,n]);else{if(m<x)next.push([m,x]);if(y<n)next.push([y,n]);}}pieces=next;}out.push(...pieces)}return out.filter(s=>s[0]<s[1]);}\n $(\'save\').onclick=()=>{if(!dirty||readonly)return;if(!valid(slots)||overlap(slots,fixed)||sum(slots)+sum(fixed)>maxQuarters){$(\'error\').textContent=\'Hay solapamiento o se supera el máximo del día\';return}window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:setComponentValue\',value:{day,slots:clone(slots),mode}},\'*\');$(\'save\').disabled=true;$(\'status\').textContent=\'Guardando…\'};\n window.addEventListener(\'message\',e=>{if(e.data.type!==\'streamlit:render\')return;const a=e.data.args||{};const theme=e.data.theme||a.theme||{};for(const [key,css] of [[\'primaryColor\',\'--primary-color\'],[\'backgroundColor\',\'--background-color\'],[\'secondaryBackgroundColor\',\'--secondary-background-color\'],[\'textColor\',\'--text-color\']]){if(theme[key])document.documentElement.style.setProperty(css,theme[key])}if(!initialized||day!==a.day||revision!==a.revision){day=a.day;revision=a.revision;slots=clone(a.slots||[]);fixed=clone(a.fixed||[]);base=clone(a.base||[]);readonly=!!a.readonly;maxQuarters=a.max_quarters||96;active=slots.length?0:-1;dirty=false;mode=\'day\';initialized=true;draw()}$(\'worked\').textContent=human(a.worked_seconds/60||0);$(\'pending\').textContent=human(a.pending_seconds/60||0)});\n window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:componentReady\',apiVersion:1},\'*\');window.parent.postMessage({isStreamlitMessage:true,type:\'streamlit:setFrameHeight\',height:300},\'*\');\n</script></body></html>'
 
 st.set_page_config(page_title="Control horas work", page_icon="https://cdn-icons-png.flaticon.com/512/194/194978.png", layout="wide")
-st.markdown('''<style>
-html,body,[class*="css"]{font-size:18px!important}
-[data-testid="stMetricValue"]{font-size:1.8rem!important}
-[data-testid="stMetricLabel"]{font-size:1.1rem!important}
-/* Fondo oscuro en las barras nativas; el relleno conserva su color. */
+st.markdown(r"""<style>
+/* FASE 5 — Liquid-glass-inspired, accessible dark UI. Presentation only. */
+:root {
+  --glass-surface: rgba(24, 32, 51, .64);
+  --glass-strong: rgba(27, 37, 59, .82);
+  --glass-edge: rgba(190, 210, 255, .18);
+  --glass-shadow: 0 14px 42px rgba(0,0,0,.24);
+  --glass-pink: #ec4899;
+  --glass-blue: #3b82f6;
+  --glass-text: #edf2ff;
+  --glass-muted: #aabbd7;
+}
+html { scroll-behavior:smooth; }
+body, .stApp, [data-testid="stAppViewContainer"] {
+  color: var(--glass-text);
+  background-color: #0b1020;
+  background-image:
+    radial-gradient(ellipse at 12% 4%, rgba(236,72,153,.17), transparent 35%),
+    radial-gradient(ellipse at 88% 14%, rgba(59,130,246,.15), transparent 36%),
+    linear-gradient(145deg, #101629 0%, #0a1020 48%, #13152a 100%);
+  background-attachment: fixed;
+}
+[data-testid="stHeader"] { background: rgba(11,16,32,.38); backdrop-filter: blur(14px); }
+[data-testid="stSidebar"] { background: rgba(16,22,40,.92); }
+/* Comfortable, restrained typography and white-space. */
+[data-testid="stMainBlockContainer"], .block-container { padding-top: 2.2rem; padding-bottom: 3.6rem; }
+[data-testid="stMarkdownContainer"] { line-height: 1.5; }
+h1,h2,h3,h4 { letter-spacing:-.035em; color:#f4f6ff!important; }
+h1 { font-size:clamp(2.05rem,3vw,2.7rem)!important; font-weight:780!important; }
+h3 { font-size:1.3rem!important; }
+[data-testid="stCaptionContainer"], .stCaption { color:var(--glass-muted)!important; }
+/* Soft glass cards used by st.container(border=True) and metric blocks. */
+[data-testid="stVerticalBlockBorderWrapper"] > div,
+[data-testid="stVerticalBlockBorderWrapper"] > div > div {
+  border-radius: 19px;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div[style*="border"]) { border-radius:19px; }
+[data-testid="stVerticalBlockBorderWrapper"] > div[style*="border"],
+[data-testid="stVerticalBlockBorderWrapper"] > div[style*="background"] {
+  background:var(--glass-surface)!important;
+  border:1px solid var(--glass-edge)!important;
+  box-shadow:var(--glass-shadow);
+  backdrop-filter:blur(18px) saturate(130%);
+  -webkit-backdrop-filter:blur(18px) saturate(130%);
+}
+[data-testid="stMetric"] {
+  border:1px solid rgba(188,204,252,.12);
+  border-radius:14px;
+  padding:12px 14px;
+  background:rgba(20,30,52,.33);
+}
+[data-testid="stMetricValue"] { font-size:1.8rem!important; font-weight:760; letter-spacing:-.05em; font-variant-numeric:tabular-nums; }
+[data-testid="stMetricLabel"] { font-size:.96rem!important; color:var(--glass-muted)!important; }
+/* Buttons, including compact visibility popover. */
+.stButton > button, .stDownloadButton > button, .stLinkButton > a,
+[data-testid="stPopover"] > button, [data-testid="stFormSubmitButton"] > button {
+  border-radius: 13px!important;
+  border:1px solid rgba(194,209,250,.23)!important;
+  background:linear-gradient(155deg,rgba(77,91,125,.40),rgba(32,43,68,.62))!important;
+  color:#f5f7ff!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.10),0 4px 16px rgba(0,0,0,.13);
+  transition:transform .16s ease,background .16s ease,box-shadow .16s ease;
+}
+.stButton > button:hover, .stLinkButton > a:hover,
+[data-testid="stPopover"] > button:hover, [data-testid="stFormSubmitButton"] > button:hover {
+  background:linear-gradient(145deg,rgba(91,106,151,.59),rgba(48,60,92,.75))!important;
+  transform:translateY(-1px);
+  box-shadow:0 9px 22px rgba(0,0,0,.22),inset 0 1px rgba(255,255,255,.14);
+}
+.stButton > button[kind="primary"], [data-testid="stFormSubmitButton"] > button[kind="primary"] {
+  background:linear-gradient(130deg,#2563eb,#3b82f6)!important;
+  border-color:rgba(163,194,255,.4)!important;
+}
+/* Popover and expandable settings: do not change their open/close behavior. */
+[data-testid="stPopoverBody"], [data-testid="stDialog"],
+[data-testid="stExpander"] {
+  background:var(--glass-strong)!important;
+  border:1px solid var(--glass-edge)!important;
+  border-radius:16px!important;
+  box-shadow:var(--glass-shadow);
+  backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+}
+[data-testid="stExpander"] details summary { border-radius:16px; }
+/* Inputs: crisp legible text even when Streamlit has a light active theme. */
+[data-baseweb="input"] > div, [data-baseweb="select"] > div,
+[data-baseweb="textarea"] > div, [data-testid="stDateInput"] input,
+[data-testid="stNumberInput"] input, [data-testid="stTextInput"] input {
+  background:rgba(8,14,28,.83)!important;
+  border-color:rgba(169,193,242,.25)!important;
+  color:#f5f7ff!important;
+  border-radius:11px!important;
+}
+[data-baseweb="input"] input, [data-baseweb="textarea"] textarea,
+[data-baseweb="select"] input { color:#f5f7ff!important; }
+[data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+  border-radius:16px!important; overflow:hidden;
+  border:1px solid var(--glass-edge)!important;
+}
+/* Quiet dividers; their conditional visibility remains controlled by Python. */
+hr, [data-testid="stDivider"] { border-color:rgba(176,195,241,.12)!important; opacity:.75; }
+/* Progress: near-black track, original blue/pink visual semantics preserved. */
 div[data-testid="stProgress"] [role="progressbar"],
-div[data-testid="stProgress"]>div>div{background-color:#08090d!important}
-div[data-testid="stProgress"]>div>div>div{background-image:linear-gradient(90deg,#3b82f6,#1d4ed8,#60a5fa);background-size:200% 100%;animation:gradientAnimation 1.5s ease infinite;transition:width .6s ease-in-out}
+div[data-testid="stProgress"]>div>div {
+  background-color:#08090d!important;
+  border-radius:999px!important;
+}
+div[data-testid="stProgress"]>div>div>div {
+  background-image:linear-gradient(90deg,#3b82f6,#1d4ed8,#60a5fa);
+  background-size:200% 100%;
+  animation:gradientAnimation 3s ease infinite;
+  transition:width .6s ease-in-out;
+  border-radius:999px!important;
+}
 div[data-testid="stProgress"]:has([role="progressbar"][aria-valuenow="100"])>div>div>div,
-div[data-testid="stProgress"]:has([role="progressbar"][aria-valuenow="100.0"])>div>div>div{background-image:linear-gradient(90deg,#ec4899,#be185d,#f472b6)!important}
-@keyframes gradientAnimation{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
-</style>''', unsafe_allow_html=True)
+div[data-testid="stProgress"]:has([role="progressbar"][aria-valuenow="100.0"])>div>div>div {
+  background-image:linear-gradient(90deg,#ec4899,#be185d,#f472b6)!important;
+}
+@keyframes gradientAnimation { 0%,100%{background-position:0 50%}50%{background-position:100% 50%} }
+/* Visible keyboard focus and reduced-motion accessibility. */
+button:focus-visible, input:focus-visible, textarea:focus-visible,
+[role="button"]:focus-visible { outline:2px solid #f472b6!important; outline-offset:3px!important; }
+@media (max-width:700px) {
+  [data-testid="stMainBlockContainer"],.block-container {padding-top:1.35rem; padding-left:1rem; padding-right:1rem;}
+  h1 {font-size:1.9rem!important;}
+  [data-testid="stMetricValue"]{font-size:1.45rem!important;}
+}
+@media (prefers-reduced-motion:reduce) {
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important;}
+}
+</style>""", unsafe_allow_html=True)
 
 TZ = ZoneInfo("Europe/Madrid")
 START = date(2026, 7, 22)
